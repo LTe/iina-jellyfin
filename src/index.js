@@ -8,6 +8,8 @@ const { createServerSessionStore } = require('./lib/server-session-store.js');
 const { createPlaybackTrackingManager } = require('./lib/playback-tracking.js');
 const { createAutoplayManager } = require('./lib/autoplay-manager.js');
 const { createMediaActionsManager } = require('./lib/media-actions.js');
+const { createDownloadTransport } = require('./lib/download-transport.js');
+const { createOfflineDownloadManager } = require('./lib/offline-downloads.js');
 
 const {
   core,
@@ -16,6 +18,7 @@ const {
   event,
   http,
   utils,
+  file,
   preferences,
   mpv,
   sidebar,
@@ -134,12 +137,46 @@ const {
 });
 
 /**
+ * Both browser surfaces show the downloads list, so state changes go to both.
+ * Posting to a webview that was never created is a no-op inside IINA.
+ */
+function notifyViews(name, data) {
+  for (const view of [sidebar, standaloneWindow]) {
+    if (view && typeof view.postMessage === 'function') {
+      try {
+        view.postMessage(name, data);
+      } catch (error) {
+        debugLog(`Could not post ${name} to a view: ${error.message}`);
+      }
+    }
+  }
+}
+
+const offlineDownloads = createOfflineDownloadManager({
+  file,
+  utils,
+  http,
+  core,
+  mpv,
+  preferences,
+  fetchPlaybackInfo,
+  buildJellyfinHeaders,
+  loadStoredServers,
+  transport: createDownloadTransport({ utils, http, log: debugLog }),
+  notifyViews,
+  // Downloaded files open exactly like streamed ones (respecting the
+  // open_in_new_window preference); the path simply is local.
+  openMedia: (data) => handlePlayMedia(data),
+  log: debugLog,
+});
+
+/**
  * Compare two Jellyfin base URLs by host and port, ignoring the scheme and any
  * trailing slash, so http/https of the same server still count as one server.
  */
 function isSameJellyfinHost(left, right) {
   const hostOf = (url) =>
-    String(url || '')
+    String(url)
       .replace(/^https?:\/\//i, '')
       .replace(/\/.*$/, '')
       .toLowerCase();
@@ -197,17 +234,10 @@ function onFileLoaded(fileUrl) {
       debugLog('Auto-login from Jellyfin URLs disabled, not storing the URL credentials');
     }
 
-    // Start playback tracking for progress sync
-    if (preferences.get('sync_playback_progress')) {
-      debugLog(`Starting playback tracking for: ${jellyfinInfo.itemId}`);
-      startPlaybackTracking(reportServerBase, jellyfinInfo.itemId, reportApiKey);
-    }
-
-    // Set video title from metadata if enabled
-    if (preferences.get('set_video_title')) {
-      debugLog(`Setting video title from metadata for: ${jellyfinInfo.itemId}`);
-      setVideoTitleFromMetadata(jellyfinInfo.serverBase, jellyfinInfo.itemId, jellyfinInfo.apiKey);
-    }
+    // Progress sync and the title lookup check their own preference and
+    // return early when disabled.
+    startPlaybackTracking(reportServerBase, jellyfinInfo.itemId, reportApiKey);
+    setVideoTitleFromMetadata(jellyfinInfo.serverBase, jellyfinInfo.itemId, jellyfinInfo.apiKey);
 
     // Setup autoplay for TV episodes if enabled
     if (preferences.get('autoplay_next_episode')) {
@@ -223,6 +253,10 @@ function onFileLoaded(fileUrl) {
     } else {
       debugLog('Auto download disabled, but Jellyfin URL stored for manual download');
     }
+  } else if (offlineDownloads.handleFileLoaded(fileUrl)) {
+    // A downloaded file: its subtitles and title come from the local manifest,
+    // so nothing here needs the server.
+    debugLog('Offline download loaded, subtitles attached from local files');
   }
 }
 
@@ -311,13 +345,7 @@ function openJellyfinStandaloneWindow(sessionData) {
 
     standaloneWindow.onMessage('store-session', (data) => {
       if (data && data.serverUrl && data.accessToken) {
-        const server = addOrUpdateServer({
-          serverUrl: data.serverUrl,
-          accessToken: data.accessToken,
-          serverName: data.serverName || '',
-          userId: data.userId || '',
-          username: data.username || '',
-        });
+        const server = addOrUpdateServer(data);
         if (server) {
           setActiveServerId(server.id);
           standaloneWindow.postMessage('servers-updated', {
@@ -359,6 +387,8 @@ function openJellyfinStandaloneWindow(sessionData) {
       }
     });
 
+    offlineDownloads.registerMessageHandlers(standaloneWindow);
+
     // Open the window
     standaloneWindow.open();
 
@@ -391,6 +421,16 @@ function openJellyfinStandaloneWindow(sessionData) {
 // Menu items
 menu.addItem(menu.item('Download Jellyfin Subtitles', manualDownloadSubtitles));
 menu.addItem(menu.item('Set Jellyfin Title', manualSetTitle));
+menu.addItem(
+  menu.item('Show Offline Downloads Folder', () => {
+    offlineDownloads.showDownloadsFolder();
+  })
+);
+menu.addItem(
+  menu.item('Choose Offline Downloads Folder…', () => {
+    offlineDownloads.chooseDownloadFolder();
+  })
+);
 menu.addItem(
   menu.item(
     'Show Jellyfin Browser',
@@ -675,13 +715,7 @@ event.on('iina.window-loaded', () => {
   // Handle session storage requests from sidebar (manual login)
   sidebar.onMessage('store-session', (data) => {
     if (data && data.serverUrl && data.accessToken) {
-      const server = addOrUpdateServer({
-        serverUrl: data.serverUrl,
-        accessToken: data.accessToken,
-        serverName: data.serverName || '',
-        userId: data.userId || '',
-        username: data.username || '',
-      });
+      const server = addOrUpdateServer(data);
       if (server) {
         setActiveServerId(server.id);
         // Send back updated server list
@@ -737,6 +771,8 @@ event.on('iina.window-loaded', () => {
       debugLog('Invalid open-external-url message - missing URL');
     }
   });
+
+  offlineDownloads.registerMessageHandlers(sidebar);
 
   // Send initial server data to sidebar after a brief delay
   setTimeout(() => {

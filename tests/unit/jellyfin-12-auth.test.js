@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import test from 'node:test';
+import { test } from 'vitest';
 import vm from 'node:vm';
 
 function loadSidebarMethods(file, factoryName, globals = {}) {
@@ -88,6 +88,7 @@ test('sidebar lists and media URLs use Jellyfin 12 credentials', async () => {
       accessToken: 'secret-token',
     },
     currentUser: { Id: 'user-id', Name: 'Test User' },
+    requestIds: {},
     getHttpClient() {
       return {
         async get(url, options) {
@@ -116,6 +117,9 @@ test('source contains no legacy Jellyfin credential transport', () => {
     'src/lib/playback-tracking.js',
     'src/ui/sidebar/lib/auth-server-methods.js',
     'src/ui/sidebar/lib/media-methods.js',
+    'src/ui/sidebar/lib/offline-methods.js',
+    'src/lib/offline-downloads.js',
+    'src/lib/download-transport.js',
   ];
 
   for (const file of sourceFiles) {
