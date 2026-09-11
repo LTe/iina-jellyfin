@@ -16,6 +16,7 @@ const { createJellyfinApi } = require('./lib/jellyfin-api.js');
 const { createServerSessionStore } = require('./lib/server-session-store.js');
 const { createDownloadTransport } = require('./lib/download-transport.js');
 const { createOfflineDownloadManager } = require('./lib/offline-downloads.js');
+const { createPlaybackSyncQueue } = require('./lib/playback-sync.js');
 
 const { global, console, preferences, utils, file, http } = iina;
 
@@ -76,6 +77,27 @@ const { buildJellyfinHeaders, fetchPlaybackInfo } = createJellyfinApi({
 });
 const { loadStoredServers } = createServerSessionStore({ preferences, log: debugLog });
 
+// ---------------------------------------------------------------------------
+// Playback reports that did not reach the server
+// ---------------------------------------------------------------------------
+
+// Windows report every playback outcome (offline copies included); the ones
+// the server did not take are kept on disk and retried, delivered ones clear
+// what was kept.
+const playbackSync = createPlaybackSyncQueue({
+  file,
+  http,
+  preferences,
+  buildJellyfinHeaders,
+  loadStoredServers,
+  log: debugLog,
+});
+global.onMessage('playback-report', (data) => {
+  playbackSync.record(data);
+});
+// Leftovers from the previous run go out once IINA has settled
+playbackSync.scheduleSync(3000);
+
 // IINA answers a message to a window label by force-unwrapping that window's
 // plugin instance: a window that is still loading its plugin, or one whose
 // plugin is gone, crashes IINA. So this entry never sends anything on its
@@ -126,6 +148,8 @@ offlineDownloads.registerMessageHandlers({
       } finally {
         replyTo = null;
       }
+      // Any activity in a window is a moment the connection may be back
+      playbackSync.requestSync();
     });
   },
   // The manager only ever posts the state this way; the OSD text rides along

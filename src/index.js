@@ -10,6 +10,7 @@ const { createAutoplayManager } = require('./lib/autoplay-manager.js');
 const { createMediaActionsManager } = require('./lib/media-actions.js');
 const { createDownloadTransport } = require('./lib/download-transport.js');
 const { createOfflineDownloadManager, OFFLINE_MESSAGES } = require('./lib/offline-downloads.js');
+const { createPlaybackReportRecorder, createPlaybackSyncQueue } = require('./lib/playback-sync.js');
 
 const {
   core,
@@ -96,7 +97,14 @@ const {
   getCurrentPlaybackSession,
 } = createPlaybackTrackingManager({
   core,
-  http,
+  // Every playback report passes through the recorder: the ones the server
+  // did not take (offline copy watched without a connection, server down)
+  // are queued and delivered later, see reportPlaybackOutcome below.
+  http: createPlaybackReportRecorder({
+    http,
+    onOutcome: (outcome) => reportPlaybackOutcome(outcome),
+    log: debugLog,
+  }),
   preferences,
   buildJellyfinHeaders,
   fetchPlaybackInfo,
@@ -240,6 +248,27 @@ function handleOfflineState(data) {
   }
 }
 
+// Playback reports the server did not take go to the global entry, which
+// keeps them on disk and retries; without one this window keeps them itself.
+const localPlaybackSync = hasGlobalEntry
+  ? null
+  : createPlaybackSyncQueue({
+      file,
+      http,
+      preferences,
+      buildJellyfinHeaders,
+      loadStoredServers,
+      log: debugLog,
+    });
+
+function reportPlaybackOutcome(outcome) {
+  if (hasGlobalEntry) {
+    global.postMessage('playback-report', outcome);
+    return;
+  }
+  localPlaybackSync.record(outcome);
+}
+
 // Stand-in for the global entry when there is none: the messages loop back
 // into this window's own manager and its replies go to the webviews.
 const localOfflineHandlers = {};
@@ -368,7 +397,24 @@ function onFileLoaded(fileUrl) {
     // A downloaded file: its subtitles and title come from the local manifest,
     // so nothing here needs the server.
     debugLog('Offline download loaded, subtitles attached from local files');
+    trackOfflinePlayback(fileUrl);
   }
+}
+
+/**
+ * A downloaded copy is still the server's item: its progress and watched
+ * state are reported like a stream's, with the credentials of the server it
+ * came from. Reports that fail (no connection) are queued and synced later.
+ */
+function trackOfflinePlayback(fileUrl) {
+  const entry = offlineDownloads.findDownloadForFile(fileUrl);
+  const token = offlineDownloads.resolveStoredToken(entry.serverUrl);
+  if (!token) {
+    debugLog(`No stored credentials for ${entry.serverUrl}, not reporting offline playback`);
+    return;
+  }
+  debugLog(`Reporting offline playback of ${entry.itemId} to ${entry.serverUrl}`);
+  startPlaybackTracking(entry.serverUrl, entry.itemId, token);
 }
 
 /**
@@ -891,6 +937,9 @@ event.on('iina.window-loaded', () => {
   // The plugin is loaded by now, so the global entry can answer this window
   offlinePollingStopped = false;
   scheduleOfflinePoll(0);
+  if (localPlaybackSync) {
+    localPlaybackSync.requestSync();
+  }
 
   // Send initial server data to sidebar after a brief delay
   setTimeout(() => {

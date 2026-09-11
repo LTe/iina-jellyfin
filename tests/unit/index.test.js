@@ -766,6 +766,137 @@ describe('plugin main entry', () => {
       expect(logged(fake)).toContain(
         'DEBUG: Offline download loaded, subtitles attached from local files'
       );
+      // Progress sync is off in the defaults, so nothing is reported
+      expect(fake.iina.http.post).not.toHaveBeenCalled();
+    });
+
+    const downloadedFilm = {
+      '@data/offline/manifest.json': JSON.stringify([
+        {
+          itemId: ITEM,
+          title: 'Film (2020)',
+          status: 'completed',
+          serverUrl: SERVER,
+          mediaPath: '@data/offline/Film.mkv',
+          mediaAbsolutePath: '/abs/data/offline/Film.mkv',
+          subtitles: [],
+        },
+      ]),
+      '@data/offline/Film.mkv': 'x',
+    };
+
+    it('reports offline playback to the server the copy came from', async () => {
+      const fake = await loadPlugin({
+        files: downloadedFilm,
+        preferences: {
+          sync_playback_progress: true,
+          ...storedServers([{ id: 'srv-1', serverUrl: SERVER, accessToken: 'tok', userId: 'u1' }]),
+        },
+      });
+      routeHttp(fake.iina, [
+        ['/PlaybackInfo', { PlaySessionId: 'ps', MediaSources: [{ Id: 'src' }] }],
+      ]);
+
+      fake.emit('iina.file-loaded', 'file:///abs/data/offline/Film.mkv');
+      await flushPromises(10);
+
+      expect(logged(fake)).toContain(`DEBUG: Reporting offline playback of ${ITEM} to ${SERVER}`);
+      expect(fake.iina.http.post).toHaveBeenCalledWith(
+        `${SERVER}/Sessions/Playing?ApiKey=tok`,
+        expect.objectContaining({ data: expect.objectContaining({ ItemId: ITEM }) })
+      );
+
+      // The stop report reaches the server: the global entry hears it was delivered
+      fake.iina.core.status.position = 1200;
+      fake.emit('mpv.end-file');
+      await flushPromises(10);
+      expect(fake.iina.global.postMessage).toHaveBeenCalledWith(
+        'playback-report',
+        expect.objectContaining({
+          kind: 'stopped',
+          itemId: ITEM,
+          serverUrl: SERVER,
+          delivered: true,
+        })
+      );
+    });
+
+    it('hands undelivered playback reports to the global entry', async () => {
+      const fake = await loadPlugin({
+        files: downloadedFilm,
+        preferences: {
+          sync_playback_progress: true,
+          ...storedServers([{ id: 'srv-1', serverUrl: SERVER, accessToken: 'tok' }]),
+        },
+      });
+      // No connection: every request fails
+      fake.iina.http.get.mockRejectedValue(new Error('offline'));
+      fake.iina.http.post.mockRejectedValue(new Error('offline'));
+
+      fake.emit('iina.file-loaded', 'file:///abs/data/offline/Film.mkv');
+      await flushPromises(10);
+      fake.iina.core.status.position = 1200;
+      fake.emit('mpv.end-file');
+      await flushPromises(10);
+
+      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('playback-report', {
+        kind: 'stopped',
+        serverUrl: SERVER,
+        itemId: ITEM,
+        positionTicks: 12000000000,
+        mediaSourceId: ITEM,
+        delivered: false,
+      });
+    });
+
+    it('keeps undelivered reports itself without a global entry', async () => {
+      vi.useFakeTimers();
+      const fake = await loadPlugin({
+        files: downloadedFilm,
+        preferences: {
+          sync_playback_progress: true,
+          ...storedServers([{ id: 'srv-1', serverUrl: SERVER, accessToken: 'tok' }]),
+        },
+        mutate: (f) => {
+          f.iina.global = undefined;
+        },
+      });
+      fake.iina.http.get.mockRejectedValue(new Error('offline'));
+      fake.iina.http.post.mockRejectedValue(new Error('offline'));
+
+      fake.emit('iina.file-loaded', 'file:///abs/data/offline/Film.mkv');
+      await vi.advanceTimersByTimeAsync(0);
+      fake.iina.core.status.position = 1200;
+      fake.emit('mpv.end-file');
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(JSON.parse(fake.files.get('@data/offline-playback-queue.json'))).toEqual([
+        expect.objectContaining({ itemId: ITEM, serverUrl: SERVER, positionTicks: 12000000000 }),
+      ]);
+
+      // Back online: the queue goes out on the next window load
+      fake.iina.http.post.mockResolvedValue({ statusCode: 204 });
+      await vi.advanceTimersByTimeAsync(6000);
+      fake.emit('iina.window-loaded');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fake.iina.http.post).toHaveBeenCalledWith(
+        `${SERVER}/Sessions/Playing/Stopped?ApiKey=tok`,
+        expect.objectContaining({ data: expect.objectContaining({ PositionTicks: 12000000000 }) })
+      );
+      expect(JSON.parse(fake.files.get('@data/offline-playback-queue.json'))).toEqual([]);
+    });
+
+    it('does not report offline playback without stored credentials', async () => {
+      const fake = await loadPlugin({
+        files: downloadedFilm,
+        preferences: { sync_playback_progress: true },
+      });
+      fake.emit('iina.file-loaded', 'file:///abs/data/offline/Film.mkv');
+      await flushPromises();
+      expect(logged(fake)).toContain(
+        `DEBUG: No stored credentials for ${SERVER}, not reporting offline playback`
+      );
+      expect(fake.iina.http.post).not.toHaveBeenCalled();
     });
 
     it('stores the url session and runs nothing else when features are off', async () => {

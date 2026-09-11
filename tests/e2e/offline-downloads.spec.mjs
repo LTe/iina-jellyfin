@@ -152,6 +152,55 @@ test.describe('offline downloads', () => {
       .toEqual([plugin.host.record.opened[0], mediaPath]);
   });
 
+  test('reports offline playback and syncs it once the server is back', async ({
+    page,
+    plugin,
+    jellyfin,
+  }) => {
+    await plugin.open({ preferences: { sync_playback_progress: true } });
+    await downloadMovie(page, plugin);
+
+    // Watch the copy to the end while the server is unreachable
+    jellyfin.state.online = false;
+    await plugin.open({ preferences: { sync_playback_progress: true } });
+    await expect(page.locator('#serverStatus')).toHaveText('Connection failed - check server');
+    await page.locator('#downloadsBtn').click();
+    await downloadEntry(page, 'movie-1').locator('[data-action="play"]').click();
+    await expect.poll(() => plugin.host.record.opened).toHaveLength(1);
+    plugin.host.iina.core.status.duration = 3960;
+    plugin.host.iina.core.status.position = 3959.8;
+
+    const queueFile = path.join(plugin.dataDir, 'offline-playback-queue.json');
+    await expect
+      .poll(
+        () => (fs.existsSync(queueFile) ? JSON.parse(fs.readFileSync(queueFile, 'utf8')) : []),
+        {
+          timeout: 15000,
+        }
+      )
+      .toEqual([
+        expect.objectContaining({
+          itemId: 'movie-1',
+          serverUrl: jellyfin.baseUrl,
+          positionTicks: 39598000000,
+          watched: true,
+        }),
+      ]);
+    expect(jellyfin.state.playbackStops).toEqual([]);
+
+    // The server returns; the next activity in the browser delivers the queue
+    jellyfin.state.online = true;
+    await page.waitForTimeout(5200);
+    await page.locator('#closeDownloadsBtn').click();
+    await page.locator('#downloadsBtn').click();
+
+    await expect
+      .poll(() => jellyfin.state.playbackStops, { timeout: 15000 })
+      .toEqual([{ ItemId: 'movie-1', MediaSourceId: 'movie-1', PositionTicks: 39598000000 }]);
+    await expect.poll(() => jellyfin.state.playedItems).toEqual(['movie-1']);
+    await expect.poll(() => JSON.parse(fs.readFileSync(queueFile, 'utf8'))).toEqual([]);
+  });
+
   test('keeps working without the server: browse, play and remove downloads', async ({
     page,
     plugin,

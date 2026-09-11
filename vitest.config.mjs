@@ -9,6 +9,7 @@ export const coveredFiles = [
   'src/lib/download-profile.js',
   'src/lib/download-transport.js',
   'src/lib/offline-downloads.js',
+  'src/lib/playback-sync.js',
   'src/lib/subtitle-utils.js',
   'src/ui/sidebar/sidebar.js',
   'src/ui/sidebar/lib/debug-log.js',

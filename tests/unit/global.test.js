@@ -95,6 +95,68 @@ describe('plugin global entry', () => {
     });
   });
 
+  describe('playback sync', () => {
+    const report = {
+      kind: 'stopped',
+      serverUrl: SERVER,
+      itemId: ITEM,
+      positionTicks: 500,
+      mediaSourceId: null,
+      delivered: false,
+    };
+
+    it('keeps undelivered reports and syncs them when a window shows activity', async () => {
+      vi.useFakeTimers();
+      const fake = await loadGlobal({
+        preferences: {
+          sync_playback_progress: true,
+          jellyfin_servers: JSON.stringify([{ id: 's', serverUrl: SERVER, accessToken: 'tok' }]),
+        },
+      });
+      fake.iina.http.post.mockRejectedValue(new Error('offline'));
+
+      fake.iina.global.receive('playback-report', report, 'p1');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(JSON.parse(fake.files.get('@data/offline-playback-queue.json'))).toEqual([
+        expect.objectContaining({ itemId: ITEM, positionTicks: 500 }),
+      ]);
+      expect(fake.iina.http.post).toHaveBeenCalledTimes(1);
+
+      // Back online: the next window message triggers another attempt
+      fake.iina.http.post.mockResolvedValue({ statusCode: 204 });
+      await vi.advanceTimersByTimeAsync(6000);
+      fake.iina.global.receive('get-offline-downloads', undefined, 'p1');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fake.iina.http.post).toHaveBeenCalledWith(
+        `${SERVER}/Sessions/Playing/Stopped?ApiKey=tok`,
+        expect.objectContaining({ data: expect.objectContaining({ ItemId: ITEM }) })
+      );
+      expect(JSON.parse(fake.files.get('@data/offline-playback-queue.json'))).toEqual([]);
+      vi.useRealTimers();
+    });
+
+    it('sends leftovers from the previous run shortly after starting', async () => {
+      vi.useFakeTimers();
+      const fake = await loadGlobal({
+        files: {
+          '@data/offline-playback-queue.json': JSON.stringify([
+            { serverUrl: SERVER, itemId: ITEM, positionTicks: 9, watched: true },
+          ]),
+        },
+        preferences: {
+          sync_playback_progress: true,
+          jellyfin_servers: JSON.stringify([{ id: 's', serverUrl: SERVER, accessToken: 'tok' }]),
+        },
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(fake.iina.http.post.mock.calls.map((call) => call[0])).toEqual([
+        `${SERVER}/Sessions/Playing/Stopped?ApiKey=tok`,
+        `${SERVER}/UserPlayedItems/${ITEM}?ApiKey=tok`,
+      ]);
+      vi.useRealTimers();
+    });
+  });
+
   describe('offline downloads', () => {
     const download = {
       item: { Id: ITEM, Type: 'Movie', Name: 'Film' },

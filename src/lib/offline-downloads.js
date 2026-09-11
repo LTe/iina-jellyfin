@@ -808,18 +808,26 @@ function createOfflineDownloadManager({
    * Called for every file IINA loads. When the file is one of the downloads,
    * its subtitles are attached and the title set. Returns whether it matched.
    */
-  function handleFileLoaded(fileUrl) {
+  /**
+   * The finished download whose media file IINA just loaded, or null.
+   */
+  function findDownloadForFile(fileUrl) {
     const loadedPath = normalizeLoadedPath(fileUrl);
     if (!loadedPath || /^https?:\/\//i.test(loadedPath)) {
-      return false;
+      return null;
     }
-
-    const entry = getEntries().find(
-      (candidate) =>
-        candidate.status === STATUS.COMPLETED &&
-        candidate.mediaPath &&
-        utils.resolvePath(candidate.mediaPath) === loadedPath
+    return (
+      getEntries().find(
+        (candidate) =>
+          candidate.status === STATUS.COMPLETED &&
+          candidate.mediaPath &&
+          utils.resolvePath(candidate.mediaPath) === loadedPath
+      ) || null
     );
+  }
+
+  function handleFileLoaded(fileUrl) {
+    const entry = findDownloadForFile(fileUrl);
     if (!entry) {
       return false;
     }
@@ -1032,6 +1040,8 @@ function createOfflineDownloadManager({
     retryDownload,
     playDownload,
     findLocalCopy,
+    findDownloadForFile,
+    resolveStoredToken,
     getPlaybackMode,
     resolvePlaybackSource,
     resolvePlaybackList,

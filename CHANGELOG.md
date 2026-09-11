@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/LTe/iina-jellyfin/compare/v0.8.0...v0.8.1) (2026-09-11)
+
+### 🚀 Features
+
+- Watching an offline copy reports progress and the watched state to Jellyfin like a stream does. Reports the server did not take (no connection) are queued in the plugin data folder and delivered on the next start, on any activity in the Jellyfin browser and every minute while something is queued
+
+
 ## [0.8.0](https://github.com/LTe/iina-jellyfin/compare/v0.7.2...v0.8.0) (2026-09-11)
 
 ### 🚀 Features

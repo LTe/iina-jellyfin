@@ -123,6 +123,8 @@ export function createMockJellyfin({ uiDir }) {
     online: true,
     requests: [],
     playbackInfoRequests: [],
+    playbackStops: [],
+    playedItems: [],
     brokenItems: new Set(['broken-1']),
   };
   let server = null;
@@ -215,6 +217,24 @@ export function createMockJellyfin({ uiDir }) {
     }
     if (pathname === '/Shows/series-1/Episodes') {
       return json(res, 200, { Items: [ITEMS.episode] });
+    }
+    if (pathname === '/Sessions/Playing' || pathname === '/Sessions/Playing/Progress') {
+      return readJsonBody(req, () => {
+        res.writeHead(204);
+        res.end();
+      });
+    }
+    if (pathname === '/Sessions/Playing/Stopped') {
+      // Playback reports: what the server learns about resume positions
+      return readJsonBody(req, (body) => {
+        state.playbackStops.push(body);
+        res.writeHead(204);
+        res.end();
+      });
+    }
+    if ((match = pathname.match(/^\/UserPlayedItems\/([^/]+)$/))) {
+      state.playedItems.push(match[1]);
+      return json(res, 200, { Played: true });
     }
     if ((match = pathname.match(/^\/Items\/([^/]+)\/PlaybackInfo$/))) {
       const itemId = match[1];
