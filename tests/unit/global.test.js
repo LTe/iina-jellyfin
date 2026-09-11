@@ -40,9 +40,6 @@ async function loadGlobal(options = {}) {
   return fake;
 }
 
-const posts = (fake, name) =>
-  fake.iina.global.postMessage.mock.calls.filter((call) => call[1] === name);
-
 describe('plugin global entry', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -119,7 +116,7 @@ describe('plugin global entry', () => {
       });
     }
 
-    it('answers state requests to the asking window and remembers it', async () => {
+    it('answers state requests to the asking window only', async () => {
       const fake = await loadGlobal();
       fake.iina.global.receive('get-offline-downloads', undefined, 'p1');
       expect(fake.iina.global.postMessage).toHaveBeenCalledWith('p1', 'offline-downloads', {
@@ -128,47 +125,42 @@ describe('plugin global entry', () => {
         quality: 'original',
         qualityPresets: expect.any(Array),
         error: null,
+        notice: null,
       });
 
-      // A quality change is broadcast to every window seen so far
-      fake.iina.global.receive('get-offline-downloads', undefined, 'p2');
+      // Nothing is ever sent to a window that is not asking right now:
+      // IINA crashes when a message reaches a window that is still loading
       fake.iina.global.postMessage.mockClear();
       fake.iina.global.receive('offline-set-quality', { quality: '2000' }, 'p2');
-      expect(
-        posts(fake, 'offline-downloads')
-          .map((call) => call[0])
-          .sort()
-      ).toEqual(['p1', 'p2']);
       expect(fake.prefs.get('offline_download_quality')).toBe('2000');
+      expect(fake.iina.global.postMessage).not.toHaveBeenCalled();
+
+      fake.iina.global.receive('get-offline-downloads', undefined, null);
+      fake.iina.global.receive('get-offline-downloads', undefined, undefined);
+      expect(fake.iina.global.postMessage).not.toHaveBeenCalled();
+      expect(fake.iina.console.log).toHaveBeenCalledWith(
+        'DEBUG: No requesting window for offline-downloads, dropping it'
+      );
     });
 
-    it('runs downloads for every window and reports OSD text to them', async () => {
+    it('runs downloads and hands OSD text to the polling windows once', async () => {
       const fake = await loadGlobal();
       routePlaybackInfo(fake);
-      fake.iina.global.receive('get-offline-downloads', undefined, 'p1');
-      fake.iina.global.postMessage.mockClear();
 
       fake.iina.global.receive('offline-download', download, 'p2');
       await flushPromises(20);
+      // No pushes while the download ran
+      expect(fake.iina.global.postMessage).not.toHaveBeenCalled();
 
-      const updates = posts(fake, 'offline-downloads');
-      expect(updates.map((call) => call[0])).toEqual(expect.arrayContaining(['p1', 'p2']));
-      expect(updates[updates.length - 1][2].downloads[0]).toMatchObject({
+      fake.iina.global.receive('get-offline-downloads', undefined, 'p1');
+      const [target, name, state] = fake.iina.global.postMessage.mock.calls[0];
+      expect([target, name]).toEqual(['p1', 'offline-downloads']);
+      expect(state.downloads[0]).toMatchObject({
         itemId: ITEM,
         status: 'completed',
         mediaPath: '@data/offline/Film.mkv',
       });
-      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('p1', 'offline-osd', {
-        message: 'Downloaded for offline: Film',
-      });
-      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('p2', 'offline-osd', {
-        message: 'Downloaded for offline: Film',
-      });
-      expect(fake.iina.global.postMessage).not.toHaveBeenCalledWith(
-        null,
-        expect.anything(),
-        expect.anything()
-      );
+      expect(state.notice).toEqual({ id: 2, message: 'Downloaded for offline: Film' });
 
       // Playing goes to the window that asked
       fake.iina.global.postMessage.mockClear();
@@ -177,48 +169,30 @@ describe('plugin global entry', () => {
         streamUrl: '/abs/data/offline/Film.mkv',
         title: 'Film',
       });
-      expect(fake.iina.global.postMessage).not.toHaveBeenCalledWith(
-        'p2',
-        'offline-play',
-        expect.anything()
-      );
-    });
-
-    it('falls back to every known window when the sender is unknown', async () => {
-      const fake = await loadGlobal();
-      // Nobody known yet: nothing to answer to
-      fake.iina.global.receive('get-offline-downloads', undefined, null);
-      expect(fake.iina.global.postMessage).not.toHaveBeenCalled();
-
-      fake.iina.global.receive('get-offline-downloads', undefined, 'p1');
-      fake.iina.global.postMessage.mockClear();
-      fake.iina.global.receive('get-offline-downloads', undefined, undefined);
       expect(fake.iina.global.postMessage).toHaveBeenCalledTimes(1);
-      expect(fake.iina.global.postMessage).toHaveBeenCalledWith(
-        'p1',
-        'offline-downloads',
-        expect.anything()
+
+      // A play request without a known sender is dropped rather than broadcast
+      fake.iina.global.postMessage.mockClear();
+      fake.iina.global.receive('play-offline', { itemId: ITEM }, null);
+      expect(fake.iina.global.postMessage).not.toHaveBeenCalled();
+      expect(fake.iina.console.log).toHaveBeenCalledWith(
+        'DEBUG: No requesting window for offline-play, dropping it'
       );
     });
 
-    it('keeps going when a window cannot be reached', async () => {
+    it('forgets the requester after a handler that throws', async () => {
       const fake = await loadGlobal();
-      fake.iina.global.receive('get-offline-downloads', undefined, 'gone');
-      fake.iina.global.receive('get-offline-downloads', undefined, 'p1');
-      fake.iina.global.postMessage.mockImplementation((target) => {
-        if (target === 'gone') throw new Error('closed');
+      fake.iina.global.postMessage.mockImplementationOnce(() => {
+        throw new Error('window gone');
       });
-
-      fake.iina.global.receive('offline-set-quality', { quality: '500' }, undefined);
-
-      expect(fake.iina.global.postMessage).toHaveBeenCalledWith(
-        'p1',
-        'offline-downloads',
-        expect.objectContaining({ quality: '500' })
-      );
+      fake.iina.global.receive('get-offline-downloads', undefined, 'p1');
       expect(fake.iina.console.log).toHaveBeenCalledWith(
-        'DEBUG: Could not post offline-downloads to player gone: closed'
+        'DEBUG: Message get-offline-downloads failed: window gone'
       );
+      // The failed reply did not leave p1 as the target of later messages
+      fake.iina.global.postMessage.mockClear();
+      fake.iina.global.receive('play-offline', { itemId: 'nothing' }, undefined);
+      expect(fake.iina.global.postMessage).not.toHaveBeenCalled();
     });
 
     it('handles the folder actions', async () => {
@@ -232,9 +206,16 @@ describe('plugin global entry', () => {
       fake.iina.global.receive('offline-choose-folder', undefined, 'p1');
       await flushPromises();
       expect(fake.prefs.get('offline_download_dir')).toBe('/Volumes/Media/Offline');
-      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('p1', 'offline-osd', {
-        message: 'Offline downloads folder: /Volumes/Media/Offline',
-      });
+
+      fake.iina.global.receive('get-offline-downloads', undefined, 'p1');
+      expect(fake.iina.global.postMessage).toHaveBeenLastCalledWith(
+        'p1',
+        'offline-downloads',
+        expect.objectContaining({
+          directory: '/Volumes/Media/Offline',
+          notice: { id: 1, message: 'Offline downloads folder: /Volumes/Media/Offline' },
+        })
+      );
     });
   });
 });

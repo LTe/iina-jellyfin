@@ -54,7 +54,10 @@ test.describe('offline downloads', () => {
     });
     expect(entry.subtitles.map((subtitle) => subtitle.language)).toEqual(['eng', 'pol']);
     expect(JSON.stringify(plugin.host.manifest())).not.toContain('e2e-access-token');
-    expect(plugin.host.record.osd).toContain('Downloaded for offline: Big Film (2020)');
+    // OSD text reaches the window with its next poll of the global entry
+    await expect
+      .poll(() => plugin.host.record.osd)
+      .toContain('Downloaded for offline: Big Film (2020)');
 
     // Authenticated with the MediaBrowser header, not a token in the URL
     const streamRequest = jellyfin.requestsTo('/Videos/movie-1/stream')[0];
@@ -246,7 +249,9 @@ test.describe('offline downloads', () => {
       'Failed: curl exited with status 22'
     );
     expect(fs.existsSync(path.join(plugin.dataDir, 'offline/Broken Film (2021).mkv'))).toBe(false);
-    expect(plugin.host.record.osd).toContain('Download failed: Broken Film (2021)');
+    await expect
+      .poll(() => plugin.host.record.osd)
+      .toContain('Download failed: Broken Film (2021)');
 
     // Once the server behaves, Retry completes the download
     jellyfin.state.brokenItems.clear();

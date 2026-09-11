@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFakeIina, flushPromises } from './helpers/fake-iina.js';
 
 const SERVER = 'http://jf.local:8096';
@@ -87,13 +87,13 @@ describe('plugin main entry', () => {
       ]);
       expect(Object.keys(fake.iina.global.handlers).sort()).toEqual([
         'offline-downloads',
-        'offline-osd',
         'offline-play',
         'player-created',
         'player-creation-failed',
       ]);
-      // The window announces itself to the global entry, which owns downloads
-      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('get-offline-downloads', {});
+      // Nothing may reach the global entry while the plugin is still loading:
+      // IINA crashes answering a window whose plugin is not registered yet
+      expect(fake.iina.global.postMessage).not.toHaveBeenCalled();
       expect(logged(fake)).toContain('DEBUG: Jellyfin Subtitles Plugin loaded');
     });
 
@@ -558,11 +558,32 @@ describe('plugin main entry', () => {
       expect(logged(fake)).toContain('DEBUG: Invalid open-external-url message - missing URL');
     });
 
-    it('relays the offline messages to the global entry and back', async () => {
+    it('relays the offline messages to the global entry and polls for the state', async () => {
+      vi.useFakeTimers();
       const fake = await loadWithSidebar();
       const sidebar = fake.iina.sidebar;
       const global = fake.iina.global;
+      const stateRequests = () =>
+        global.postMessage.mock.calls.filter((call) => call[0] === 'get-offline-downloads').length;
 
+      // The first request goes out once the window is loaded
+      expect(stateRequests()).toBe(0);
+      vi.advanceTimersByTime(0);
+      expect(stateRequests()).toBe(1);
+      expect(global.postMessage).toHaveBeenCalledWith('get-offline-downloads', {});
+
+      // An idle state (even without a list) ends the polling; the first
+      // notice is adopted silently
+      global.emit('offline-downloads', { notice: { id: 3, message: 'from before this window' } });
+      expect(sidebar.postMessage).toHaveBeenCalledWith(
+        'offline-downloads',
+        expect.objectContaining({ notice: { id: 3, message: 'from before this window' } })
+      );
+      expect(fake.iina.core.osd).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(5000);
+      expect(stateRequests()).toBe(1);
+
+      // Actions are relayed and followed by a short burst of polls
       const request = {
         item: { Id: ITEM, Type: 'Movie', Name: 'Film' },
         serverUrl: SERVER,
@@ -570,22 +591,50 @@ describe('plugin main entry', () => {
       };
       sidebar.emit('offline-download', request);
       expect(global.postMessage).toHaveBeenCalledWith('offline-download', request);
-      sidebar.emit('offline-cancel', { itemId: ITEM });
-      expect(global.postMessage).toHaveBeenCalledWith('offline-cancel', { itemId: ITEM });
-      // Nothing is downloaded by this window itself
       expect(fake.iina.http.download).not.toHaveBeenCalled();
-      expect(fake.iina.utils.exec).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(300);
+      expect(stateRequests()).toBe(2);
+      global.emit('offline-downloads', { downloads: [], notice: { id: 3, message: 'old' } });
+      vi.advanceTimersByTime(1000);
+      expect(stateRequests()).toBe(3);
+      global.emit('offline-downloads', { downloads: [] });
+      vi.advanceTimersByTime(1000);
+      expect(stateRequests()).toBe(4);
+      global.emit('offline-downloads', { downloads: [] });
+      vi.advanceTimersByTime(1000);
+      expect(stateRequests()).toBe(5);
+      global.emit('offline-downloads', { downloads: [] });
+      vi.advanceTimersByTime(5000);
+      expect(stateRequests()).toBe(5);
 
-      // State from the global entry reaches both views
-      const snapshot = { downloads: [{ itemId: ITEM, status: 'downloading', progress: 5 }] };
-      global.emit('offline-downloads', snapshot);
-      expect(sidebar.postMessage).toHaveBeenCalledWith('offline-downloads', snapshot);
+      // An active download keeps the polling going, both views get the state
+      sidebar.emit('get-offline-downloads');
+      expect(global.postMessage).toHaveBeenLastCalledWith('get-offline-downloads', undefined);
+      const active = { downloads: [{ itemId: ITEM, status: 'downloading', progress: 5 }] };
+      global.emit('offline-downloads', active);
+      expect(sidebar.postMessage).toHaveBeenCalledWith('offline-downloads', active);
       expect(fake.iina.standaloneWindow.postMessage).toHaveBeenCalledWith(
         'offline-downloads',
-        snapshot
+        active
       );
+      vi.advanceTimersByTime(1000);
+      expect(stateRequests()).toBe(7);
 
-      // Playback and OSD requests from the global entry run in this window
+      // A newer notice is shown once
+      global.emit('offline-downloads', {
+        downloads: [{ itemId: ITEM, status: 'queued' }],
+        notice: { id: 4, message: 'Downloaded for offline: Film' },
+      });
+      expect(fake.iina.core.osd).toHaveBeenCalledWith('Downloaded for offline: Film');
+      global.emit('offline-downloads', {
+        downloads: [],
+        notice: { id: 4, message: 'Downloaded for offline: Film' },
+      });
+      expect(fake.iina.core.osd).toHaveBeenCalledTimes(1);
+      global.emit('offline-downloads', undefined);
+      expect(fake.iina.core.osd).toHaveBeenCalledTimes(1);
+
+      // Playback requests from the global entry run in this window
       global.emit('offline-play', { streamUrl: '/abs/data/offline/Film.mkv', title: 'Film' });
       expect(fake.iina.core.open).toHaveBeenCalledWith('/abs/data/offline/Film.mkv');
       expect(fake.iina.mpv.set).toHaveBeenCalledWith('force-media-title', 'Film');
@@ -593,12 +642,17 @@ describe('plugin main entry', () => {
       global.emit('offline-play', {});
       expect(fake.iina.core.open).toHaveBeenCalledTimes(1);
 
-      global.emit('offline-osd', { message: 'Downloaded for offline: Film' });
-      expect(fake.iina.core.osd).toHaveBeenCalledWith('Downloaded for offline: Film');
-      fake.iina.core.osd.mockClear();
-      global.emit('offline-osd', undefined);
-      global.emit('offline-osd', {});
-      expect(fake.iina.core.osd).not.toHaveBeenCalled();
+      // A closing window stops asking; reopening it starts again
+      global.emit('offline-downloads', active);
+      fake.emit('iina.window-will-close');
+      vi.advanceTimersByTime(5000);
+      const afterClose = stateRequests();
+      sidebar.emit('offline-cancel', { itemId: ITEM });
+      vi.advanceTimersByTime(5000);
+      expect(stateRequests()).toBe(afterClose);
+      fake.emit('iina.window-loaded');
+      vi.advanceTimersByTime(0);
+      expect(stateRequests()).toBe(afterClose + 1);
     });
 
     it('runs the downloads itself when there is no global entry', async () => {

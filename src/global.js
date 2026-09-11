@@ -7,8 +7,8 @@
  * - run the offline downloads. A download must not stop when the window it
  *   was started from closes or when another window opens, and every window
  *   must show the same list, so exactly one manager owns the downloads and
- *   the manifest. Player entries relay the webview messages here and receive
- *   the state back.
+ *   the manifest. Player entries relay the webview messages here and poll
+ *   for the state.
  */
 
 const { createDebugLogger } = require('./lib/debug-log.js');
@@ -76,35 +76,23 @@ const { buildJellyfinHeaders, fetchPlaybackInfo } = createJellyfinApi({
 });
 const { loadStoredServers } = createServerSessionStore({ preferences, log: debugLog });
 
-// Player windows that talked to us. IINA only broadcasts to windows the
-// plugin created itself, so every window is addressed by its label instead.
-// A label whose window has closed is a no-op for IINA.
-const players = new Set();
-// The window whose message is being handled: replies and playback go there.
+// IINA answers a message to a window label by force-unwrapping that window's
+// plugin instance: a window that is still loading its plugin, or one whose
+// plugin is gone, crashes IINA. So this entry never sends anything on its
+// own. It only replies to the window whose message it is handling (that
+// window is alive and loaded, or it could not have asked), and the windows
+// poll for state while downloads run.
 let replyTo = null;
-
-function rememberPlayer(player) {
-  if (player !== null && player !== undefined) {
-    players.add(player);
-  }
-}
-
-function postToPlayers(name, data) {
-  for (const player of players) {
-    try {
-      global.postMessage(player, name, data);
-    } catch (error) {
-      debugLog(`Could not post ${name} to player ${player}: ${error.message}`);
-    }
-  }
-}
+// OSD text for the windows; they show a notice once, by its id.
+let noticeCounter = 0;
+let lastNotice = null;
 
 function postToRequester(name, data) {
-  if (replyTo !== null) {
-    global.postMessage(replyTo, name, data);
+  if (replyTo === null) {
+    debugLog(`No requesting window for ${name}, dropping it`);
     return;
   }
-  postToPlayers(name, data);
+  global.postMessage(replyTo, name, data);
 }
 
 const offlineDownloads = createOfflineDownloadManager({
@@ -116,9 +104,14 @@ const offlineDownloads = createOfflineDownloadManager({
   buildJellyfinHeaders,
   loadStoredServers,
   transport: createDownloadTransport({ utils, http, log: debugLog }),
-  // No player here: OSD messages are shown by the windows
-  core: { osd: (message) => postToPlayers('offline-osd', { message }) },
-  notifyViews: postToPlayers,
+  core: {
+    osd: (message) => {
+      noticeCounter += 1;
+      lastNotice = { id: noticeCounter, message };
+    },
+  },
+  // Windows poll for state, nothing is pushed
+  notifyViews: () => {},
   // Playing a download happens in the window that asked for it
   openMedia: (data) => postToRequester('offline-play', data),
   log: debugLog,
@@ -127,12 +120,18 @@ const offlineDownloads = createOfflineDownloadManager({
 offlineDownloads.registerMessageHandlers({
   onMessage(name, callback) {
     global.onMessage(name, (data, player) => {
-      rememberPlayer(player);
       replyTo = player ?? null;
-      callback(data);
+      try {
+        callback(data);
+      } finally {
+        replyTo = null;
+      }
     });
   },
-  postMessage: postToRequester,
+  // The manager only ever posts the state this way; the OSD text rides along
+  postMessage(name, data) {
+    postToRequester(name, { ...data, notice: lastNotice });
+  },
 });
 
 debugLog('Global entry message listeners registered');

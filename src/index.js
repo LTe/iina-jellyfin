@@ -182,23 +182,74 @@ const offlineDownloads = createOfflineDownloadManager({
   log: debugLog,
 });
 
+// Windows poll the global entry for the state. A reply to a window's own
+// message is the only thing IINA delivers to a window safely (see global.js),
+// so nothing is pushed: polling runs while a download is active, for a short
+// burst after an action, and stops when the window closes.
+const OFFLINE_POLL_MS = 1000;
+const OFFLINE_REFRESH_DELAY_MS = 300;
+const OFFLINE_REFRESH_POLLS = 3;
+let offlinePollTimer = null;
+let offlinePollingStopped = false;
+let offlineRefreshPolls = 0;
+let lastOfflineNoticeId = null;
+
+function requestOfflineState() {
+  offlinePollTimer = null;
+  global.postMessage('get-offline-downloads', {});
+}
+
+function scheduleOfflinePoll(delay) {
+  if (!hasGlobalEntry || offlinePollingStopped || offlinePollTimer) {
+    return;
+  }
+  offlinePollTimer = setTimeout(requestOfflineState, delay);
+}
+
+function stopOfflinePolling() {
+  offlinePollingStopped = true;
+  clearTimeout(offlinePollTimer);
+  offlinePollTimer = null;
+}
+
+function hasActiveOfflineDownload(snapshot) {
+  return (snapshot.downloads || []).some(
+    (entry) => entry.status === 'queued' || entry.status === 'downloading'
+  );
+}
+
+function handleOfflineState(data) {
+  if (!data) {
+    return;
+  }
+  notifyViews('offline-downloads', data);
+  // OSD text travels with the state; each notice is shown once, and the
+  // ones from before this window existed are not shown at all.
+  const noticeId = data.notice ? data.notice.id : 0;
+  if (lastOfflineNoticeId === null) {
+    lastOfflineNoticeId = noticeId;
+  } else if (noticeId > lastOfflineNoticeId) {
+    lastOfflineNoticeId = noticeId;
+    core.osd(data.notice.message);
+  }
+  if (offlineRefreshPolls > 0) {
+    offlineRefreshPolls -= 1;
+    scheduleOfflinePoll(OFFLINE_POLL_MS);
+  } else if (hasActiveOfflineDownload(data)) {
+    scheduleOfflinePoll(OFFLINE_POLL_MS);
+  }
+}
+
 // Stand-in for the global entry when there is none: the messages loop back
 // into this window's own manager and its replies go to the webviews.
 const localOfflineHandlers = {};
 if (hasGlobalEntry) {
-  global.onMessage('offline-downloads', (data) => notifyViews('offline-downloads', data));
+  global.onMessage('offline-downloads', handleOfflineState);
   global.onMessage('offline-play', (data) => {
     if (data && data.streamUrl) {
       handlePlayMedia(data);
     }
   });
-  global.onMessage('offline-osd', (data) => {
-    if (data && data.message) {
-      core.osd(data.message);
-    }
-  });
-  // Registers this window with the global entry, which then keeps it updated
-  global.postMessage('get-offline-downloads', {});
 } else {
   offlineDownloads.registerMessageHandlers({
     onMessage(name, callback) {
@@ -209,11 +260,16 @@ if (hasGlobalEntry) {
 }
 
 function sendOfflineMessage(name, data) {
-  if (hasGlobalEntry) {
-    global.postMessage(name, data);
+  if (!hasGlobalEntry) {
+    localOfflineHandlers[name](data);
     return;
   }
-  localOfflineHandlers[name](data);
+  global.postMessage(name, data);
+  if (name !== 'get-offline-downloads') {
+    // The action finishes asynchronously in the global entry; pick up its result
+    offlineRefreshPolls = OFFLINE_REFRESH_POLLS;
+    scheduleOfflinePoll(OFFLINE_REFRESH_DELAY_MS);
+  }
 }
 
 /**
@@ -737,6 +793,7 @@ event.on('mpv.end-file', () => {
 event.on('iina.window-will-close', () => {
   debugLog('Window closing, stopping playback tracking');
   stopPlaybackTracking();
+  stopOfflinePolling();
 });
 
 // Ensure we report stop on app termination
@@ -831,6 +888,9 @@ event.on('iina.window-loaded', () => {
   });
 
   relayOfflineMessages(sidebar);
+  // The plugin is loaded by now, so the global entry can answer this window
+  offlinePollingStopped = false;
+  scheduleOfflinePoll(0);
 
   // Send initial server data to sidebar after a brief delay
   setTimeout(() => {

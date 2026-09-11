@@ -119,7 +119,9 @@ test.describe('download quality', () => {
     await expect(page.locator('#downloadsDirectory')).toHaveText(`Folder: ${chosen}`);
     expect(plugin.host.record.folderPickerOpened).toBe(1);
     expect(plugin.host.prefs.get('offline_download_dir')).toBe(chosen);
-    expect(plugin.host.record.osd).toContain(`Offline downloads folder: ${chosen}`);
+    await expect
+      .poll(() => plugin.host.record.osd)
+      .toContain(`Offline downloads folder: ${chosen}`);
 
     // Downloads now land in the new folder
     await page.locator('#closeDownloadsBtn').click();

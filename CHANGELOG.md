@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.0](https://github.com/LTe/iina-jellyfin/compare/v0.7.2...v0.8.0) (2026-09-11)
+
+### 🚀 Features
+
+- Offline downloads: save movies, episodes and songs with their subtitles and play them without the server, from the Downloads panel or any row (⬇ Offline / ▶ Offline in every view)
+- Download quality presets with server-side transcoding (Original, 8 Mb/s … 250 Kb/s), a system folder picker for the download folder, and title-based file names (`Show S01E02 - Pilot.mkv`, `Title.eng.srt`)
+- Downloaded items play locally instead of streaming, also for albums and the next episode queued by autoplay; the _When a downloaded copy exists_ preference can ask first or always stream
+- Downloads run in the plugin's global entry, so opening or closing windows never interrupts them and every window shows the same state
+- Updates are checked against this repository (`ghRepo`)
+
+### 🐛 Bug Fixes
+
+- Jellyfin 12 authorization (upstream #94)
+- System tools are invoked by absolute path, as IINA's `utils.exec` does not search PATH; the folder chooser awaits IINA's promise; files outside the plugin folder are replaced and removed through `rm`
+
+### 🧪 Tests
+
+- Unit tests with 100% coverage on the touched files, mutation testing (Stryker) and Playwright end-to-end tests running the real plugin against a mock Jellyfin server, all in CI
+
+
 ## [0.7.2](https://github.com/mhajder/iina-jellyfin/compare/v0.7.1...v0.7.2) (2026-08-14)
 
 
