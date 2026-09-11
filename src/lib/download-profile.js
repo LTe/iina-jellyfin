@@ -118,7 +118,7 @@ function buildDownloadDeviceProfile(bitrate) {
  * /Videos/{id}/stream.mp4?...; falls back to mp4.
  */
 function containerFromTranscodingUrl(transcodingUrl) {
-  const match = String(transcodingUrl || '').match(/\/(?:stream|master)\.([a-z0-9]+)(?:\?|$)/i);
+  const match = String(transcodingUrl).match(/\/(?:stream|master)\.([a-z0-9]+)(?:\?|$)/i);
   return match ? match[1].toLowerCase() : 'mp4';
 }
 

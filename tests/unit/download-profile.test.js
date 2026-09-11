@@ -109,8 +109,36 @@ describe('buildDownloadDeviceProfile', () => {
     expect(profile.SubtitleProfiles).toHaveLength(
       TEXT_SUBTITLE_FORMATS.length + IMAGE_SUBTITLE_FORMATS.length
     );
-    expect(TEXT_SUBTITLE_FORMATS).toEqual(expect.arrayContaining(['srt', 'subrip', 'vtt', 'ass']));
-    expect(IMAGE_SUBTITLE_FORMATS).toEqual(expect.arrayContaining(['pgssub', 'vobsub', 'dvdsub']));
+    expect(TEXT_SUBTITLE_FORMATS).toEqual([
+      'srt',
+      'subrip',
+      'vtt',
+      'webvtt',
+      'ass',
+      'ssa',
+      'ttml',
+      'mov_text',
+      'microdvd',
+      'mpl2',
+      'pjs',
+      'realtext',
+      'scc',
+      'smi',
+      'stl',
+      'sub',
+      'subviewer',
+      'text',
+      'vplayer',
+    ]);
+    expect(IMAGE_SUBTITLE_FORMATS).toEqual([
+      'dvdsub',
+      'idx',
+      'pgs',
+      'pgssub',
+      'teletext',
+      'vobsub',
+      'xsub',
+    ]);
   });
 
   it('builds a fresh object per call', () => {
