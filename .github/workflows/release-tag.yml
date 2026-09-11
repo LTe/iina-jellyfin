@@ -1,16 +1,23 @@
-name: Release on tag
+name: Release
 
-# IINA installs plugin updates from the latest GitHub release (an .iinaplgz
-# asset when there is one), so every version tag gets a release with the
-# packed plugin. Uses the workflow token only; no extra secrets needed.
+# IINA installs plugin updates from the latest GitHub release (the .iinaplgz
+# asset when there is one), so every version in Info.json gets a release with
+# the packed plugin: on each push to main the version is read and, unless a
+# release for it already exists, the tag and the release are created. Uses
+# the workflow token only; no extra secrets needed.
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -19,17 +26,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Check that Info.json matches the tag
+      - name: Read the version and check for an existing release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          INFO_VERSION=$(python3 -c 'import json; print(json.load(open("Info.json"))["version"])')
-          echo "tag=$TAG_VERSION Info.json=$INFO_VERSION"
-          test "$TAG_VERSION" = "$INFO_VERSION"
+          VERSION=$(python3 -c 'import json; print(json.load(open("Info.json"))["version"])')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install IINA
+        if: steps.version.outputs.exists == 'false'
         run: brew install --cask iina
 
       - name: Pack plugin
+        if: steps.version.outputs.exists == 'false'
         id: pack
         run: |
           rm -f *.iinaplgz
@@ -37,9 +53,12 @@ jobs:
           PLUGIN_FILE=$(ls *.iinaplgz)
           echo "asset_path=$PLUGIN_FILE" >> "$GITHUB_OUTPUT"
 
-      - name: Create release
+      - name: Create tag and release
+        if: steps.version.outputs.exists == 'false'
         uses: softprops/action-gh-release@v3
         with:
-          name: ${{ github.ref_name }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
           generate_release_notes: true
           files: ${{ steps.pack.outputs.asset_path }}
