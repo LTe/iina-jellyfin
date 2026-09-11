@@ -822,10 +822,7 @@ function createOfflineDownloadManager({
           osd(`Offline downloads: ${error.message}`);
         };
         try {
-          const result = handler(data);
-          if (result && typeof result.catch === 'function') {
-            result.catch(report);
-          }
+          Promise.resolve(handler(data)).catch(report);
         } catch (error) {
           report(error);
         }

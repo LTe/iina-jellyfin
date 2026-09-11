@@ -333,6 +333,31 @@ describe('createOfflineDownloadManager', () => {
       expect(snapshot.downloads[0].subtitles).toHaveLength(1);
       snapshot.downloads[0].subtitles.push('junk');
       expect(env.manager.listDownloads()[0].subtitles).toHaveLength(1);
+      expect(env.notifyViews).toHaveBeenLastCalledWith('offline-downloads', {
+        downloads: [expect.objectContaining({ itemId: 'movie-1', status: 'completed' })],
+        directory: '/abs/data/offline',
+        quality: 'original',
+        qualityPresets: expect.any(Array),
+        error: null,
+      });
+    });
+
+    it('does not try to delete files that are already gone', async () => {
+      env.files.set(
+        '@data/offline/manifest.json',
+        JSON.stringify([
+          {
+            itemId: 'a',
+            status: 'completed',
+            mediaPath: '@data/offline/a.mkv',
+            subtitles: [{ path: '/Volumes/Ext/a.srt' }],
+          },
+        ])
+      );
+      await expect(env.manager.removeDownload('a')).resolves.toBe(true);
+      expect(env.file.delete).not.toHaveBeenCalled();
+      expect(env.utils.exec).not.toHaveBeenCalledWith('/bin/rm', expect.anything());
+      expect(env.manager.listDownloads()).toEqual([]);
     });
 
     it('uses the preference when set, without trailing slashes', () => {
