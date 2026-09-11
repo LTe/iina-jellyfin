@@ -19,7 +19,7 @@ async function downloadMovie(page, plugin) {
   await downloadButton(page, 'movie-1').click();
   await expect(page.locator('#downloadsNotice')).toHaveText('Queued for download: Big Film');
   await expect(downloadButton(page, 'movie-1')).toHaveText('▶ Offline', { timeout: 30000 });
-  return path.join(plugin.dataDir, 'offline/movie-1.mkv');
+  return path.join(plugin.dataDir, 'offline/Big Film (2020).mkv');
 }
 
 test.describe('offline downloads', () => {
@@ -34,13 +34,13 @@ test.describe('offline downloads', () => {
     // Real bytes on disk, fetched by curl straight from the (mock) server
     expect(fs.readFileSync(mediaPath).equals(mediaBytes('movie-1'))).toBe(true);
     expect(
-      fs.readFileSync(path.join(plugin.dataDir, 'offline/movie-1_sub_2_eng.srt'), 'utf8')
+      fs.readFileSync(path.join(plugin.dataDir, 'offline/Big Film (2020).eng.srt'), 'utf8')
     ).toBe(subtitleText('movie-1', 2));
     expect(
-      fs.readFileSync(path.join(plugin.dataDir, 'offline/movie-1_sub_3_pol.srt'), 'utf8')
+      fs.readFileSync(path.join(plugin.dataDir, 'offline/Big Film (2020).pol.srt'), 'utf8')
     ).toBe(subtitleText('movie-1', 3));
     // The image based subtitle stream is embedded work for the player, not a download
-    expect(fs.existsSync(path.join(plugin.dataDir, 'offline/movie-1_sub_4_ger.srt'))).toBe(false);
+    expect(fs.existsSync(path.join(plugin.dataDir, 'offline/Big Film (2020).ger.srt'))).toBe(false);
 
     const [entry] = plugin.host.manifest();
     expect(entry).toMatchObject({
@@ -88,8 +88,8 @@ test.describe('offline downloads', () => {
     await expect
       .poll(() => plugin.host.record.subtitleTracks)
       .toEqual([
-        path.join(plugin.dataDir, 'offline/movie-1_sub_2_eng.srt'),
-        path.join(plugin.dataDir, 'offline/movie-1_sub_3_pol.srt'),
+        path.join(plugin.dataDir, 'offline/Big Film (2020).eng.srt'),
+        path.join(plugin.dataDir, 'offline/Big Film (2020).pol.srt'),
       ]);
     expect(plugin.host.record.mpvSet).toContainEqual(['force-media-title', 'Big Film (2020)']);
     expect(plugin.host.record.osd).toContain('Loaded 2 offline subtitle(s)');
@@ -98,6 +98,55 @@ test.describe('offline downloads', () => {
     await page.locator('#closeDownloadsBtn').click();
     await downloadButton(page, 'movie-1').click();
     await expect.poll(() => plugin.host.record.opened).toEqual([mediaPath, mediaPath]);
+  });
+
+  test('plays downloaded items locally from every view, asking when configured', async ({
+    page,
+    plugin,
+    jellyfin,
+  }) => {
+    await plugin.open();
+    const mediaPath = await downloadMovie(page, plugin);
+
+    // The plain Play button of the row opens the local file, not the stream
+    await movieRow(page).locator('[data-action="select"]').click();
+    await expect.poll(() => plugin.host.record.opened).toEqual([mediaPath]);
+    expect(plugin.host.record.osd).toContain('Opening: Big Film (offline copy)');
+    expect(plugin.host.record.asked).toEqual([]);
+    expect(jellyfin.requestsTo('/Videos/movie-1/stream')).toHaveLength(1);
+
+    // Episode rows and the picker button carry the same offline button
+    await page
+      .locator('#recentList .media-item[data-item-id="series-1"] [data-action="select"]')
+      .click();
+    await page.locator('#seasonSelect').selectOption('season-1');
+    const episodeRow = page.locator('.episode-item[data-episode-id="ep-1"]');
+    const rowButton = episodeRow.locator('[data-offline-item-id="ep-1"]');
+    await expect(rowButton).toHaveText('⬇ Offline');
+    await rowButton.click();
+    await expect(rowButton).toHaveText('▶ Offline', { timeout: 30000 });
+    await episodeRow.click();
+    await expect(page.locator('#downloadEpisodeBtn')).toHaveText('▶ Offline');
+    await page.locator('#playEpisodeBtn').click();
+    const episodePath = path.join(plugin.dataDir, 'offline/Show S01E01 - Pilot.mkv');
+    await expect.poll(() => plugin.host.record.opened).toEqual([mediaPath, episodePath]);
+
+    // In "ask" mode a declined dialog streams from the server
+    await plugin.open({ preferences: { offline_playback: 'ask' } });
+    plugin.host.nextAnswer = false;
+    await expectConnected(page);
+    await movieRow(page).locator('[data-action="select"]').click();
+    await expect.poll(() => plugin.host.record.opened).toHaveLength(1);
+    expect(plugin.host.record.opened[0]).toContain('/Videos/movie-1/stream');
+    expect(plugin.host.record.asked).toEqual([
+      '"Big Film (2020)" is downloaded. Play the offline copy?\n\nCancel streams it from the server instead.',
+    ]);
+
+    plugin.host.nextAnswer = true;
+    await movieRow(page).locator('[data-action="select"]').click();
+    await expect
+      .poll(() => plugin.host.record.opened)
+      .toEqual([plugin.host.record.opened[0], mediaPath]);
   });
 
   test('keeps working without the server: browse, play and remove downloads', async ({
@@ -134,7 +183,7 @@ test.describe('offline downloads', () => {
 
     await expect(page.locator('#downloadsList')).toContainText('No downloads yet');
     await expect.poll(() => fs.existsSync(mediaPath)).toBe(false);
-    expect(fs.existsSync(path.join(plugin.dataDir, 'offline/movie-1_sub_2_eng.srt'))).toBe(false);
+    expect(fs.existsSync(path.join(plugin.dataDir, 'offline/Big Film (2020).eng.srt'))).toBe(false);
     expect(plugin.host.manifest()).toEqual([]);
 
     // Back returns to the login form, which is what a disconnected sidebar shows
@@ -166,7 +215,7 @@ test.describe('offline downloads', () => {
       }
     );
 
-    const episodePath = path.join(plugin.dataDir, 'offline/ep-1.mkv');
+    const episodePath = path.join(plugin.dataDir, 'offline/Show S01E01 - Pilot.mkv');
     expect(fs.readFileSync(episodePath).equals(mediaBytes('ep-1'))).toBe(true);
     expect(plugin.host.manifest()[0]).toMatchObject({
       itemId: 'ep-1',
@@ -178,7 +227,7 @@ test.describe('offline downloads', () => {
     await expect.poll(() => plugin.host.record.opened).toEqual([episodePath]);
     await expect
       .poll(() => plugin.host.record.subtitleTracks)
-      .toEqual([path.join(plugin.dataDir, 'offline/ep-1_sub_2_eng.srt')]);
+      .toEqual([path.join(plugin.dataDir, 'offline/Show S01E01 - Pilot.eng.srt')]);
     expect(plugin.host.record.mpvSet).toContainEqual(['force-media-title', 'Show S01E01 - Pilot']);
   });
 
@@ -196,7 +245,7 @@ test.describe('offline downloads', () => {
     await expect(downloadEntry(page, 'broken-1')).toContainText(
       'Failed: curl exited with status 22'
     );
-    expect(fs.existsSync(path.join(plugin.dataDir, 'offline/broken-1.mkv'))).toBe(false);
+    expect(fs.existsSync(path.join(plugin.dataDir, 'offline/Broken Film (2021).mkv'))).toBe(false);
     expect(plugin.host.record.osd).toContain('Download failed: Broken Film (2021)');
 
     // Once the server behaves, Retry completes the download
@@ -207,7 +256,7 @@ test.describe('offline downloads', () => {
     });
     expect(
       fs
-        .readFileSync(path.join(plugin.dataDir, 'offline/broken-1.mkv'))
+        .readFileSync(path.join(plugin.dataDir, 'offline/Broken Film (2021).mkv'))
         .equals(mediaBytes('broken-1'))
     ).toBe(true);
   });
@@ -233,7 +282,7 @@ test.describe('offline downloads', () => {
     });
     await expect(page.locator('#downloadsBadge')).toBeHidden();
     await expect
-      .poll(() => fs.existsSync(path.join(plugin.dataDir, 'offline/slow-1.mkv')))
+      .poll(() => fs.existsSync(path.join(plugin.dataDir, 'offline/Slow Film (2022).mkv')))
       .toBe(false);
     expect(plugin.host.manifest()).toEqual([]);
     expect(plugin.host.record.osd).not.toContain('Download failed: Slow Film (2022)');

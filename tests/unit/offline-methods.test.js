@@ -333,8 +333,9 @@ describe('sidebar offline methods', () => {
       );
     });
 
-    it('downloads the selected episode', () => {
+    it('downloads or plays the selected episode like its row button', () => {
       const request = vi.spyOn(sidebar, 'requestOfflineDownload').mockReturnValue(true);
+      const play = vi.spyOn(sidebar, 'playOfflineDownload').mockReturnValue(true);
       expect(sidebar.downloadSelectedEpisode()).toBe(false);
       expect(request).not.toHaveBeenCalled();
 
@@ -345,6 +346,30 @@ describe('sidebar offline methods', () => {
       byId('downloadEpisodeBtn').disabled = false;
       click(byId('downloadEpisodeBtn'));
       expect(request).toHaveBeenCalledTimes(2);
+
+      // Once downloaded, the same button plays the copy
+      sidebar.offlineDownloads = [entry({ itemId: EPISODE.Id, status: 'completed' })];
+      expect(sidebar.downloadSelectedEpisode()).toBe(true);
+      expect(play).toHaveBeenCalledWith(EPISODE.Id);
+      expect(request).toHaveBeenCalledTimes(2);
+    });
+
+    it('binds the picker button to an episode and back', () => {
+      const button = byId('downloadEpisodeBtn');
+      sidebar.offlineDownloads = [entry({ itemId: EPISODE.Id, status: 'queued' })];
+
+      sidebar.bindSelectedEpisodeButton(EPISODE);
+      expect(button.dataset.offlineItemId).toBe(EPISODE.Id);
+      expect(button.textContent).toBe('Queued…');
+      expect(button.disabled).toBe(true);
+      expect(button.dataset.offlineState).toBe('queued');
+
+      sidebar.bindSelectedEpisodeButton(null);
+      expect(button.dataset.offlineItemId).toBeUndefined();
+      expect(button.dataset.offlineState).toBeUndefined();
+      expect(button.textContent).toBe('⬇ Offline');
+      expect(button.title).toBe('Download for offline playback');
+      expect(button.disabled).toBe(true);
     });
   });
 
@@ -765,22 +790,50 @@ describe('sidebar offline methods', () => {
       // Remove needs confirmation
       click(button('remove'));
       expect(button('remove').textContent).toBe('Confirm?');
+      expect(sidebar.pendingRemoveId).toBe('movie-1');
       expect(bridge.postMessage).not.toHaveBeenCalledWith('offline-remove', expect.anything());
       vi.advanceTimersByTime(4000);
       expect(button('remove').textContent).toBe('Remove');
-      expect(button('remove').dataset.confirm).toBe('false');
+      expect(sidebar.pendingRemoveId).toBeNull();
 
       click(button('remove'));
       click(button('remove'));
       expect(bridge.postMessage).toHaveBeenCalledWith('offline-remove', { itemId: 'movie-1' });
+      expect(sidebar.pendingRemoveId).toBeNull();
+      expect(sidebar.pendingRemoveTimer).toBeNull();
 
-      // A detached button is not reset
-      const detached = button('remove');
-      detached.dataset.confirm = 'false';
-      click(detached);
-      detached.remove();
+      // A progress update re-renders the list while armed: the new button is
+      // still armed and confirms on the next click
+      bridge.postMessage.mockClear();
+      click(button('remove'));
+      sidebar.handleOfflineDownloads({ downloads: [entry(), entry({ itemId: 'b' })] });
+      expect(button('remove').textContent).toBe('Confirm?');
+      expect(
+        byId('downloadsList').querySelector('[data-download-id="b"] [data-action="remove"]')
+          .textContent
+      ).toBe('Remove');
+      click(button('remove'));
+      expect(bridge.postMessage).toHaveBeenCalledWith('offline-remove', { itemId: 'movie-1' });
+
+      // Arming another entry moves the confirmation there
+      sidebar.offlineDownloads = [entry(), entry({ itemId: 'b' })];
+      sidebar.renderDownloadsList();
+      const removeFor = (id) =>
+        byId('downloadsList').querySelector(`[data-download-id="${id}"] [data-action="remove"]`);
+      click(removeFor('movie-1'));
+      click(removeFor('b'));
+      expect(sidebar.pendingRemoveId).toBe('b');
+      expect(removeFor('b').textContent).toBe('Confirm?');
       vi.advanceTimersByTime(4000);
-      expect(detached.textContent).toBe('Confirm?');
+      expect(removeFor('b').textContent).toBe('Remove');
+
+      // A button that disappeared before the timeout is left alone
+      click(removeFor('b'));
+      sidebar.offlineDownloads = [entry()];
+      sidebar.renderDownloadsList();
+      vi.advanceTimersByTime(4000);
+      expect(sidebar.pendingRemoveId).toBeNull();
+      expect(removeFor('movie-1').textContent).toBe('Remove');
 
       sidebar.offlineDownloads = [entry({ status: 'failed' })];
       sidebar.renderDownloadsList();
@@ -800,7 +853,7 @@ describe('sidebar offline methods', () => {
       bridge.postMessage.mockClear();
       sidebar.handleDownloadEntryAction('unknown', entry(), stray);
       expect(stray.textContent).toBe('Nothing');
-      expect(stray.dataset.confirm).toBeUndefined();
+      expect(sidebar.pendingRemoveId).toBeNull();
       expect(bridge.postMessage).not.toHaveBeenCalled();
     });
   });

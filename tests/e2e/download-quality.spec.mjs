@@ -65,11 +65,11 @@ test.describe('download quality', () => {
     });
 
     // The file on disk is the transcoder's output, not the original
-    const mediaPath = path.join(plugin.dataDir, 'offline/movie-1.mp4');
+    const mediaPath = path.join(plugin.dataDir, 'offline/Big Film (2020).mp4');
     expect(fs.readFileSync(mediaPath).equals(transcodedBytes('movie-1', '2000000'))).toBe(true);
-    expect(fs.existsSync(path.join(plugin.dataDir, 'offline/movie-1.mkv'))).toBe(false);
+    expect(fs.existsSync(path.join(plugin.dataDir, 'offline/Big Film (2020).mkv'))).toBe(false);
     expect(
-      fs.readFileSync(path.join(plugin.dataDir, 'offline/movie-1_sub_2_eng.srt'), 'utf8')
+      fs.readFileSync(path.join(plugin.dataDir, 'offline/Big Film (2020).eng.srt'), 'utf8')
     ).toBe(subtitleText('movie-1', 2));
     expect(plugin.host.manifest()[0]).toMatchObject({
       quality: '2000',
@@ -98,7 +98,7 @@ test.describe('download quality', () => {
 
     const negotiation = jellyfin.state.playbackInfoRequests.find((r) => r.itemId === 'movie-1');
     expect(negotiation.body.MaxStreamingBitrate).toBe(8000000);
-    const mediaPath = path.join(plugin.dataDir, 'offline/movie-1.mkv');
+    const mediaPath = path.join(plugin.dataDir, 'offline/Big Film (2020).mkv');
     expect(fs.readFileSync(mediaPath).equals(mediaBytes('movie-1'))).toBe(true);
     expect(plugin.host.manifest()[0]).toMatchObject({ quality: '8000', transcoded: false });
 
@@ -126,7 +126,7 @@ test.describe('download quality', () => {
     await expectConnected(page);
     await downloadButton(page, 'movie-1').click();
     await expect(downloadButton(page, 'movie-1')).toHaveText('▶ Offline', { timeout: 30000 });
-    expect(fs.existsSync(path.join(chosen, 'movie-1.mkv'))).toBe(true);
+    expect(fs.existsSync(path.join(chosen, 'Big Film (2020).mkv'))).toBe(true);
     expect(fs.existsSync(path.join(chosen, 'manifest.json'))).toBe(true);
 
     // Cancelling the picker keeps the folder

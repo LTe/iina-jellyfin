@@ -582,7 +582,7 @@ describe('plugin main entry', () => {
       );
 
       sidebar.emit('play-offline', { itemId: ITEM });
-      expect(fake.iina.core.open).toHaveBeenCalledWith('/abs/data/offline/item-1.mkv');
+      expect(fake.iina.core.open).toHaveBeenCalledWith('/abs/data/offline/Film.mkv');
       expect(fake.iina.mpv.set).toHaveBeenCalledWith('force-media-title', 'Film');
     });
 
@@ -627,26 +627,26 @@ describe('plugin main entry', () => {
               itemId: ITEM,
               title: 'Film (2020)',
               status: 'completed',
-              mediaPath: '@data/offline/item-1.mkv',
-              mediaAbsolutePath: '/abs/data/offline/item-1.mkv',
+              mediaPath: '@data/offline/Film.mkv',
+              mediaAbsolutePath: '/abs/data/offline/Film.mkv',
               subtitles: [
                 {
-                  path: '@data/offline/item-1_sub_3_eng.srt',
-                  absolutePath: '/abs/data/offline/item-1_sub_3_eng.srt',
+                  path: '@data/offline/Film.eng.srt',
+                  absolutePath: '/abs/data/offline/Film.eng.srt',
                 },
               ],
             },
           ]),
-          '@data/offline/item-1.mkv': 'x',
-          '@data/offline/item-1_sub_3_eng.srt': 'x',
+          '@data/offline/Film.mkv': 'x',
+          '@data/offline/Film.eng.srt': 'x',
         },
       });
 
-      fake.emit('iina.file-loaded', 'file:///abs/data/offline/item-1.mkv');
+      fake.emit('iina.file-loaded', 'file:///abs/data/offline/Film.mkv');
 
       expect(fake.iina.mpv.set).toHaveBeenCalledWith('force-media-title', 'Film (2020)');
       expect(fake.iina.core.subtitle.loadTrack).toHaveBeenCalledWith(
-        '/abs/data/offline/item-1_sub_3_eng.srt'
+        '/abs/data/offline/Film.eng.srt'
       );
       expect(fake.iina.http.get).not.toHaveBeenCalled();
       expect(logged(fake)).toContain(
@@ -925,6 +925,161 @@ describe('plugin main entry', () => {
       expect(fake.iina.core.open).toHaveBeenCalledWith(STREAM_URL);
       global.emit('player-creation-failed', undefined);
       expect(fake.iina.core.open).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('offline playback', () => {
+    const LOCAL = '/abs/data/offline/Film.mkv';
+    const downloaded = {
+      '@data/offline/manifest.json': JSON.stringify([
+        {
+          itemId: ITEM,
+          status: 'completed',
+          title: 'Film',
+          mediaPath: '@data/offline/Film.mkv',
+          mediaAbsolutePath: LOCAL,
+          subtitles: [],
+        },
+        {
+          itemId: 't1',
+          status: 'completed',
+          title: 'One',
+          mediaPath: '@data/offline/One.mp3',
+          mediaAbsolutePath: '/abs/data/offline/One.mp3',
+          subtitles: [],
+        },
+      ]),
+      '@data/offline/Film.mkv': 'bytes',
+      '@data/offline/One.mp3': 'bytes',
+    };
+
+    it('plays the downloaded copy instead of streaming', async () => {
+      const fake = await loadPlugin({ files: downloaded });
+      fake.emit('iina.window-loaded');
+
+      fake.iina.sidebar.emit('play-media', { streamUrl: STREAM_URL, title: 'Film', itemId: ITEM });
+
+      expect(fake.iina.core.open).toHaveBeenCalledWith(LOCAL);
+      expect(fake.iina.core.osd).toHaveBeenCalledWith('Opening: Film (offline copy)');
+      expect(fake.iina.utils.ask).not.toHaveBeenCalled();
+
+      // Items without a copy still stream
+      fake.iina.sidebar.emit('play-media', {
+        streamUrl: STREAM_URL.replace(ITEM, 'other'),
+        title: 'Other',
+      });
+      expect(fake.iina.core.open).toHaveBeenLastCalledWith(STREAM_URL.replace(ITEM, 'other'));
+      expect(fake.iina.core.osd).toHaveBeenLastCalledWith('Opening: Other');
+    });
+
+    it('opens the copy in a new window as well', async () => {
+      const fake = await loadPlugin({
+        files: downloaded,
+        preferences: { open_in_new_window: true },
+      });
+      fake.emit('iina.window-loaded');
+      fake.iina.sidebar.emit('play-media', { streamUrl: STREAM_URL, title: 'Film' });
+      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('create-player', {
+        url: LOCAL,
+        title: 'Film',
+      });
+      expect(fake.iina.core.osd).toHaveBeenCalledWith('Opening in new window: Film (offline copy)');
+    });
+
+    it('asks or streams according to the preference', async () => {
+      const fake = await loadPlugin({
+        files: downloaded,
+        preferences: { offline_playback: 'ask' },
+      });
+      fake.emit('iina.window-loaded');
+      fake.iina.utils.ask.mockReturnValueOnce(false);
+      fake.iina.sidebar.emit('play-media', { streamUrl: STREAM_URL, title: 'Film' });
+      expect(fake.iina.utils.ask).toHaveBeenCalledWith(
+        expect.stringContaining('"Film" is downloaded')
+      );
+      expect(fake.iina.core.open).toHaveBeenCalledWith(STREAM_URL);
+
+      fake.iina.sidebar.emit('play-media', { streamUrl: STREAM_URL, title: 'Film' });
+      expect(fake.iina.core.open).toHaveBeenLastCalledWith(LOCAL);
+
+      fake.prefs.set('offline_playback', 'stream');
+      fake.iina.utils.ask.mockClear();
+      fake.iina.sidebar.emit('play-media', { streamUrl: STREAM_URL, title: 'Film' });
+      expect(fake.iina.core.open).toHaveBeenLastCalledWith(STREAM_URL);
+      expect(fake.iina.utils.ask).not.toHaveBeenCalled();
+    });
+
+    it('uses downloaded tracks in a list', async () => {
+      const fake = await loadPlugin({ files: downloaded });
+      fake.emit('iina.window-loaded');
+      const items = [
+        { streamUrl: `${SERVER}/Audio/t1/stream?static=true&api_key=${KEY}`, title: 'One' },
+        { streamUrl: `${SERVER}/Audio/t2/stream?static=true&api_key=${KEY}`, title: 'Two' },
+      ];
+      fake.iina.sidebar.emit('play-media-list', { items });
+      expect(fake.iina.core.open).toHaveBeenCalledWith('/abs/data/offline/One.mp3');
+      fake.emit('iina.file-loaded', '/abs/data/offline/One.mp3');
+      expect(fake.iina.mpv.command).toHaveBeenCalledWith('loadfile', [
+        items[1].streamUrl,
+        'append',
+        '-1',
+        'force-media-title=Two',
+      ]);
+    });
+
+    it('queues the downloaded copy of the next episode for autoplay', async () => {
+      const fake = await loadPlugin({
+        files: {
+          '@data/offline/manifest.json': JSON.stringify([
+            {
+              itemId: 'ep-2',
+              status: 'completed',
+              title: 'Show S01E02 - Ep 2',
+              mediaPath: '@data/offline/Show S01E02 - Ep 2.mkv',
+              mediaAbsolutePath: '/abs/data/offline/Show S01E02 - Ep 2.mkv',
+              subtitles: [],
+            },
+          ]),
+          '@data/offline/Show S01E02 - Ep 2.mkv': 'bytes',
+        },
+        preferences: { autoplay_next_episode: true },
+      });
+      routeHttp(fake.iina, [
+        ['/PlaybackInfo', { PlaySessionId: 'ps', MediaSources: [{ Id: 'src' }] }],
+        [
+          `/Items/${ITEM}?`,
+          {
+            Type: 'Episode',
+            Name: 'Ep 1',
+            SeriesId: 'series',
+            SeasonId: 'season',
+            SeriesName: 'Show',
+            ParentIndexNumber: 1,
+            IndexNumber: 1,
+            UserData: {},
+          },
+        ],
+        [
+          '/Shows/series/Episodes',
+          {
+            Items: [
+              { Id: ITEM, Name: 'Ep 1', IndexNumber: 1, MediaSources: [{}] },
+              { Id: 'ep-2', Name: 'Ep 2', IndexNumber: 2, MediaSources: [{}] },
+            ],
+          },
+        ],
+      ]);
+
+      fake.emit('iina.file-loaded', STREAM_URL);
+      await flushPromises(20);
+
+      expect(fake.iina.mpv.command).toHaveBeenCalledWith('loadfile', [
+        '/abs/data/offline/Show S01E02 - Ep 2.mkv',
+        'insert-next',
+        '-1',
+        'force-media-title=Show S01E02 - Ep 2',
+      ]);
+      expect(fake.iina.utils.ask).not.toHaveBeenCalled();
     });
   });
 

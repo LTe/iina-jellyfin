@@ -19,7 +19,14 @@ const require = createRequire(import.meta.url);
 export function createPluginHost({ page, dataDir, preferences = {} }) {
   const prefs = new Map(Object.entries(preferences));
   const events = {};
-  const record = { osd: [], opened: [], subtitleTracks: [], mpvSet: [], mpvCommands: [] };
+  const record = {
+    osd: [],
+    opened: [],
+    subtitleTracks: [],
+    mpvSet: [],
+    mpvCommands: [],
+    asked: [],
+  };
   const sidebarHandlers = {};
   let pageReady = false;
   const pendingToPage = [];
@@ -126,6 +133,11 @@ export function createPluginHost({ page, dataDir, preferences = {} }) {
         record.folderPickerOpened = (record.folderPickerOpened || 0) + 1;
         return host.nextChosenFolder;
       },
+      // The OK/Cancel dialog: tests preload the answer
+      ask: (question) => {
+        record.asked.push(question);
+        return host.nextAnswer;
+      },
       fileInPath(name) {
         if (path.isAbsolute(name)) return fs.existsSync(name);
         const dirs = (process.env.PATH || '').split(path.delimiter);
@@ -183,6 +195,7 @@ export function createPluginHost({ page, dataDir, preferences = {} }) {
     prefs,
     dataDir,
     nextChosenFolder: '',
+    nextAnswer: true,
     emit(name, ...args) {
       for (const callback of events[name] || []) callback(...args);
     },

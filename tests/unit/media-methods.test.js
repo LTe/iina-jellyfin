@@ -995,6 +995,68 @@ describe('sidebar media methods', () => {
       expect(sidebar.selectedEpisode).toEqual(episodes[2]);
     });
 
+    it('offers the offline button in every episode row and on the picker button', async () => {
+      sidebar.selectedItem = SERIES;
+      const episodes = [
+        { ...EPISODE, MediaSources: [{}] },
+        { Id: 'ep-v', Name: 'Virtual', IndexNumber: 3, LocationType: 'Virtual', Type: 'Episode' },
+        { Id: 'ep-2', Name: 'Two', IndexNumber: 4, Type: 'Episode', MediaSources: [{}] },
+      ];
+      mockFetch([['/Shows/series-1/Episodes', { Items: episodes }]]);
+      sidebar.offlineDownloads = [
+        { itemId: 'ep-2', status: 'completed', title: 'Show S01E04 - Two', fileMissing: false },
+      ];
+
+      await sidebar.loadEpisodes('s1');
+
+      const rows = byId('episodeList').querySelectorAll('.episode-item');
+      const rowButton = (row) => row.querySelector('.ep-action-btn[data-action="download"]');
+      expect(rowButton(rows[0]).dataset.offlineItemId).toBe('ep-1');
+      expect(rowButton(rows[0]).textContent).toBe('⬇ Offline');
+      // Unavailable episodes cannot be downloaded
+      expect(rowButton(rows[1])).toBeNull();
+      // A finished download reads the same as everywhere else
+      expect(rowButton(rows[2]).textContent).toBe('▶ Offline');
+      expect(rowButton(rows[2]).dataset.offlineState).toBe('completed');
+
+      // The row button downloads/plays without selecting the row
+      const handle = vi.spyOn(sidebar, 'handleDownloadButtonClick').mockReturnValue(true);
+      click(rowButton(rows[0]));
+      expect(handle).toHaveBeenCalledWith(episodes[0]);
+      expect(rows[0].classList.contains('selected')).toBe(false);
+      expect(sidebar.selectedEpisode).toBeNull();
+
+      // The picker button follows the selected episode
+      const picker = byId('downloadEpisodeBtn');
+      expect(picker.disabled).toBe(true);
+      expect(picker.dataset.offlineItemId).toBeUndefined();
+      click(rows[2]);
+      expect(picker.dataset.offlineItemId).toBe('ep-2');
+      expect(picker.textContent).toBe('▶ Offline');
+      expect(picker.disabled).toBe(false);
+      expect(picker.title).toBe('Play the offline copy');
+      click(rows[0]);
+      expect(picker.dataset.offlineItemId).toBe('ep-1');
+      expect(picker.textContent).toBe('⬇ Offline');
+      expect(picker.disabled).toBe(false);
+
+      // Progress pushed by the plugin updates the row and the picker button together
+      sidebar.handleOfflineDownloads({
+        downloads: [{ itemId: 'ep-1', status: 'downloading', progress: 30 }],
+      });
+      expect(rowButton(rows[0]).textContent).toBe('30%');
+      expect(picker.textContent).toBe('30%');
+      expect(picker.disabled).toBe(true);
+
+      // Leaving the picker resets its button
+      sidebar.hideEpisodeSelection();
+      expect(picker.dataset.offlineItemId).toBeUndefined();
+      expect(picker.dataset.offlineState).toBeUndefined();
+      expect(picker.textContent).toBe('⬇ Offline');
+      expect(picker.title).toBe('Download for offline playback');
+      expect(picker.disabled).toBe(true);
+    });
+
     it('renders episodes without thumbnails when the server is gone', async () => {
       sidebar.selectedItem = SERIES;
       const gate = deferred();
@@ -1529,6 +1591,34 @@ describe('sidebar media methods', () => {
       expect(sidebar.albumTracks).toEqual([{ Id: 'new', Name: 'New' }]);
     });
 
+    it('offers the offline button in album track rows', async () => {
+      const tracks = [
+        { Id: 't1', Type: 'Audio', Name: 'One', AlbumArtist: 'Band' },
+        { Id: 't2', Name: 'No type' },
+      ];
+      sidebar.offlineDownloads = [{ itemId: 't1', status: 'failed', error: 'HTTP 500' }];
+      mockFetch([['/Items?', { Items: tracks }]]);
+
+      await sidebar.showAlbumTracks(ALBUM);
+
+      const rows = byId('albumTracksList').querySelectorAll('.track-item');
+      const button = rows[0].querySelector('.track-action-btn[data-action="download"]');
+      expect(button.dataset.offlineItemId).toBe('t1');
+      expect(button.textContent).toBe('Retry ⬇');
+      expect(button.title).toBe('HTTP 500');
+      expect(rows[1].querySelector('[data-action="download"]')).toBeNull();
+
+      const handle = vi.spyOn(sidebar, 'handleDownloadButtonClick').mockReturnValue(true);
+      const play = vi.spyOn(sidebar, 'playMedia').mockImplementation(() => {});
+      click(button);
+      expect(handle).toHaveBeenCalledWith(tracks[0]);
+      expect(play).not.toHaveBeenCalled();
+      expect(sidebar.selectedTrack).toBeNull();
+
+      click(rows[0]);
+      expect(play).toHaveBeenCalledWith(tracks[0]);
+    });
+
     it('plays all album tracks through the plugin', () => {
       sidebar.playAllAlbumTracks();
       expect(bridge.postMessage).not.toHaveBeenCalled();
@@ -1537,8 +1627,16 @@ describe('sidebar media methods', () => {
       sidebar.playAllAlbumTracks();
       expect(bridge.postMessage).toHaveBeenCalledWith('play-media-list', {
         items: [
-          { streamUrl: `${BASE}/Audio/song-1/stream?static=true&ApiKey=tok`, title: 'Tune' },
-          { streamUrl: `${BASE}/Videos/t2/stream?static=true&ApiKey=tok`, title: 'Unknown Title' },
+          {
+            streamUrl: `${BASE}/Audio/song-1/stream?static=true&ApiKey=tok`,
+            title: 'Tune',
+            itemId: 'song-1',
+          },
+          {
+            streamUrl: `${BASE}/Videos/t2/stream?static=true&ApiKey=tok`,
+            title: 'Unknown Title',
+            itemId: 't2',
+          },
         ],
       });
 
@@ -1600,6 +1698,8 @@ describe('sidebar media methods', () => {
       expect(bridge.postMessage).toHaveBeenCalledWith('play-media', {
         streamUrl: `${BASE}/Videos/movie-1/stream?static=true&ApiKey=tok`,
         title: 'Big Film',
+        // The plugin swaps in a downloaded copy by item id
+        itemId: 'movie-1',
       });
 
       byId('episodeSection').style.display = 'block';

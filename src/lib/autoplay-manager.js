@@ -7,6 +7,8 @@ function createAutoplayManager({
   preferences,
   buildJellyfinHeaders,
   fetchItemMetadata,
+  // Lets the offline downloads swap a stream URL for a downloaded copy
+  resolvePlayUrl = (episodeId, url) => url,
   log,
 }) {
   let lastProcessedEpisodeId = null;
@@ -52,7 +54,10 @@ function createAutoplayManager({
         name: episode.Name,
         indexNumber: Number(episode.IndexNumber) || 0,
         duration: episode.RunTimeTicks,
-        playUrl: `${serverBase}/Videos/${episode.Id}/stream?static=true&ApiKey=${apiKey}`,
+        playUrl: resolvePlayUrl(
+          episode.Id,
+          `${serverBase}/Videos/${episode.Id}/stream?static=true&ApiKey=${apiKey}`
+        ),
       }));
 
       episodes.sort((left, right) => left.indexNumber - right.indexNumber);

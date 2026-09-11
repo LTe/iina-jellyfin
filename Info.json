@@ -33,7 +33,8 @@
     "sync_playback_progress": true,
     "use_connected_account": false,
     "offline_download_dir": "",
-    "offline_download_quality": "original"
+    "offline_download_quality": "original",
+    "offline_playback": "local"
   },
   "ghRepo": "mhajder/iina-jellyfin",
   "ghVersion": 12

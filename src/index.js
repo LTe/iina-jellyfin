@@ -114,6 +114,9 @@ const { setupAutoplayForEpisode, resetForNewFile, clearQueuedFlag, isQueued } =
     preferences,
     buildJellyfinHeaders,
     fetchItemMetadata,
+    // offlineDownloads is created further down; the autoplay lookups happen
+    // long after both exist.
+    resolvePlayUrl: (episodeId, url) => offlineDownloads.resolveAutoplayUrl(episodeId, url),
     log: debugLog,
   });
 
@@ -561,7 +564,9 @@ function flushPendingPlaylistQueue(fileUrl) {
  * current window regardless of the open_in_new_window preference.
  */
 function handlePlayMediaList(message) {
-  const items = (message?.items || []).filter((item) => item && item.streamUrl);
+  const items = offlineDownloads.resolvePlaybackList(
+    (message?.items || []).filter((item) => item && item.streamUrl)
+  );
   debugLog(`handlePlayMediaList called with ${items.length} playable item(s)`);
 
   if (items.length === 0) {
@@ -609,19 +614,23 @@ function handlePlayMedia(message) {
     title: message?.title,
     streamUrl: message?.streamUrl,
   });
-  const { streamUrl, title } = message;
+  // A downloaded copy takes the place of the stream, depending on the
+  // offline_playback preference (it may ask first).
+  const source = offlineDownloads.resolvePlaybackSource(message);
+  const { url: streamUrl, title } = source;
   debugLog(`Opening media: ${title} - ${streamUrl}`);
 
   try {
     const openInNewWindow = preferences.get('open_in_new_window');
     debugLog('open_in_new_window preference: ' + openInNewWindow);
+    const label = source.offline ? `${title} (offline copy)` : title;
 
     if (openInNewWindow) {
       debugLog('Opening media in new instance: ' + streamUrl);
-      core.osd(`Opening in new window: ${title}`);
+      core.osd(`Opening in new window: ${label}`);
       openInNewInstance(streamUrl, title);
     } else {
-      core.osd(`Opening: ${title}`);
+      core.osd(`Opening: ${label}`);
       openInCurrentWindow(streamUrl, title);
     }
 

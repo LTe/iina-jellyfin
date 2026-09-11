@@ -167,7 +167,9 @@ Movies, episodes and songs can be saved to disk and played later without any con
 3. When the download is complete the button turns into **▶ Offline**. Clicking it plays the local copy, even while you are online.
 4. The **Downloads** button (always visible, connected or not) opens the Downloads panel. From there you can **Play**, **Reveal** the file in Finder, **Remove** a download (asks for confirmation), **Cancel** a running download or **Retry** a failed one. **Open Folder** shows the download folder itself.
 
-When a downloaded file is played, its subtitles are loaded automatically and the window title is set from the stored metadata, so nothing is requested from the server. If the server is unreachable the sidebar still shows the Downloads panel, so your offline library is always accessible.
+Once an item is downloaded, playing it from anywhere in the browser (its row, the episode picker, an album, or the next episode queued by autoplay) opens the local file instead of streaming it. The _When a downloaded copy exists_ preference can instead ask every time (an OK/Cancel dialog; autoplay never asks) or always stream from the server. When a downloaded file is played, its subtitles are loaded automatically and the window title is set from the stored metadata, so nothing is requested from the server. If the server is unreachable the sidebar still shows the Downloads panel, so your offline library is always accessible.
+
+Files are named after what they are, so the folder stays readable in Finder: `Big Film (2020).mkv`, `Show S01E02 - Pilot.mkv`, `Band - Tune.mp3`, with subtitles as sidecars next to the video (`Show S01E02 - Pilot.eng.srt`; a second track in the same language carries its stream index). Two different items with the same title get the item id appended so they never overwrite each other.
 
 Downloads are stored in the plugin data folder by default (`Show Offline Downloads Folder` in the menu opens it). A different folder can be picked with `Choose Offline Downloads Folder…` in the menu, the **Change Folder…** button of the Downloads panel, or typed into the preferences; the list of downloads (`manifest.json`) lives next to the files, so a folder on an external drive carries its library with it. Access tokens are never written to that folder.
 
@@ -212,6 +214,7 @@ Access plugin settings through IINA → Preferences → Plugins → Jellyfin:
 ### Offline Downloads
 
 - **Download folder**: Where offline downloads and their subtitles are stored. Leave empty for the plugin's data folder, or enter a path such as `~/Movies/Jellyfin Offline`.
+- **When a downloaded copy exists**: Play the downloaded copy (default), ask whether to play the copy or stream, or always stream from the server.
 
 ### Menu Options
 

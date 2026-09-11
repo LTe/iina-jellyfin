@@ -14,6 +14,12 @@ const MANIFEST_FILE = 'manifest.json';
 const MKDIR_BINARY = '/bin/mkdir';
 const RM_BINARY = '/bin/rm';
 const DOWNLOADABLE_TYPES = ['Movie', 'Episode', 'Audio'];
+// What to do when an item that is about to be streamed has a downloaded copy.
+const PLAYBACK_MODES = {
+  LOCAL: 'local',
+  ASK: 'ask',
+  STREAM: 'stream',
+};
 
 const STATUS = {
   QUEUED: 'queued',
@@ -41,11 +47,38 @@ function isPluginLocalPath(path) {
 }
 
 /**
+ * Jellyfin item id in a playback URL (/Videos/{id}/stream, /Audio/{id}/stream
+ * or the older /Items/{id}/...). Local paths never yield one.
+ */
+function itemIdFromStreamUrl(url) {
+  const text = String(url || '');
+  if (!/^https?:\/\//i.test(text)) {
+    return null;
+  }
+  const match = text.match(/\/(?:Videos|Audio|Items)\/([^/?#]+)/);
+  return match ? match[1] : null;
+}
+
+/**
  * Plain JSON copy of a value. IINA relays messages to the webview as JSON and
  * refuses payloads that are not strictly serializable (undefined, NaN, ...).
  */
 function toMessageData(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+/**
+ * File name (without extension) for a download: the display title, stripped
+ * of characters the file system rejects. Falls back to the item id.
+ */
+function sanitizeFileName(value) {
+  const cleaned = String(value || '')
+    .replace(/[\\/:*?"<>|]|\p{Cc}/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+    .replace(/[\s.]+$/, '');
+  return cleaned;
 }
 
 function padNumber(value) {
@@ -325,6 +358,19 @@ function createOfflineDownloadManager({
     return getEntries().find((entry) => entry.itemId === itemId) || null;
   }
 
+  /**
+   * Base file name for an entry. Two different items with the same title
+   * (a remake, a re-recorded song) get the item id appended, so their files
+   * never overwrite each other.
+   */
+  function uniqueFileBaseName(entry) {
+    const base = sanitizeFileName(entry.title) || sanitizeId(entry.itemId);
+    const clash = getEntries().some(
+      (other) => other.itemId !== entry.itemId && other.fileBase === base
+    );
+    return clash ? `${base} [${sanitizeId(entry.itemId)}]` : base;
+  }
+
   function removeEntry(itemId) {
     entries = getEntries().filter((entry) => entry.itemId !== itemId);
   }
@@ -386,6 +432,7 @@ function createOfflineDownloadManager({
       error: null,
       container: null,
       expectedBytes: null,
+      fileBase: null,
       mediaPath: null,
       mediaAbsolutePath: null,
       subtitles: [],
@@ -465,6 +512,7 @@ function createOfflineDownloadManager({
     const downloaded = [];
     const directory = getDirectory();
     const mediaSourceId = source.Id || entry.itemId;
+    const usedNames = new Set();
 
     for (const stream of streams) {
       if (entry.status !== STATUS.DOWNLOADING) {
@@ -473,7 +521,14 @@ function createOfflineDownloadManager({
       const language = stream.Language || 'unknown';
       const extension = subtitleExtensionForCodec(stream.Codec);
       const url = `${entry.serverUrl}/Videos/${entry.itemId}/${mediaSourceId}/Subtitles/${stream.Index}/stream.${extension}`;
-      const path = `${directory}/${sanitizeId(entry.itemId)}_sub_${stream.Index}_${sanitizeId(language)}.${extension}`;
+      // Sidecar naming ("Title.eng.srt") that players match to the video;
+      // a second track in the same language carries its stream index.
+      let name = `${entry.fileBase}.${sanitizeId(language)}.${extension}`;
+      if (usedNames.has(name)) {
+        name = `${entry.fileBase}.${sanitizeId(language)}.${stream.Index}.${extension}`;
+      }
+      usedNames.add(name);
+      const path = `${directory}/${name}`;
       try {
         await transport.download(url, path, { headers });
         downloaded.push({
@@ -581,7 +636,8 @@ function createOfflineDownloadManager({
         const mediaSourceId = source.Id || entry.itemId;
         mediaUrl = `${entry.serverUrl}/${route}/${entry.itemId}/stream?static=true&mediaSourceId=${encodeURIComponent(mediaSourceId)}`;
       }
-      entry.mediaPath = `${directory}/${sanitizeId(entry.itemId)}.${entry.container}`;
+      entry.fileBase = uniqueFileBaseName(entry);
+      entry.mediaPath = `${directory}/${entry.fileBase}.${entry.container}`;
       entry.mediaAbsolutePath = utils.resolvePath(entry.mediaPath);
       await persistAndBroadcast();
       log(
@@ -770,6 +826,113 @@ function createOfflineDownloadManager({
     return true;
   }
 
+  function getPlaybackMode() {
+    const mode = preferences.get('offline_playback');
+    return Object.values(PLAYBACK_MODES).includes(mode) ? mode : PLAYBACK_MODES.LOCAL;
+  }
+
+  /**
+   * The finished download of an item, when its file is still there.
+   */
+  function findLocalCopy(itemId) {
+    const entry = itemId ? findEntry(itemId) : null;
+    if (!entry || entry.status !== STATUS.COMPLETED || !fileExists(entry.mediaPath)) {
+      return null;
+    }
+    return {
+      itemId: entry.itemId,
+      title: entry.title,
+      path: entry.mediaAbsolutePath || utils.resolvePath(entry.mediaPath),
+    };
+  }
+
+  function askToPlayLocally(question) {
+    try {
+      return Boolean(utils.ask(question));
+    } catch (error) {
+      log(`Could not ask about the offline copy: ${error.message}`);
+      return true;
+    }
+  }
+
+  /**
+   * What to open for a playback request from the browser: the downloaded
+   * copy when there is one and the preference allows it (asking first in
+   * "ask" mode), otherwise the stream URL as requested.
+   */
+  function resolvePlaybackSource({ streamUrl, title, itemId } = {}) {
+    const stream = { url: streamUrl, title, offline: false };
+    const mode = getPlaybackMode();
+    if (mode === PLAYBACK_MODES.STREAM) {
+      return stream;
+    }
+    const local = findLocalCopy(itemId || itemIdFromStreamUrl(streamUrl));
+    if (!local) {
+      return stream;
+    }
+    if (
+      mode === PLAYBACK_MODES.ASK &&
+      !askToPlayLocally(
+        `"${local.title}" is downloaded. Play the offline copy?\n\nCancel streams it from the server instead.`
+      )
+    ) {
+      log(`Streaming ${local.title} although an offline copy exists (user choice)`);
+      return stream;
+    }
+    log(`Playing the offline copy of ${local.title}: ${local.path}`);
+    return { url: local.path, title: title || local.title, offline: true };
+  }
+
+  /**
+   * Same for a list (an album): downloaded tracks are swapped in; in "ask"
+   * mode one question covers the whole list.
+   */
+  function resolvePlaybackList(items) {
+    const list = Array.isArray(items) ? items : [];
+    const mode = getPlaybackMode();
+    if (mode === PLAYBACK_MODES.STREAM) {
+      return list;
+    }
+    const copies = list.map((item) =>
+      item ? findLocalCopy(item.itemId || itemIdFromStreamUrl(item.streamUrl)) : null
+    );
+    const available = copies.filter(Boolean).length;
+    if (available === 0) {
+      return list;
+    }
+    if (
+      mode === PLAYBACK_MODES.ASK &&
+      !askToPlayLocally(
+        `${available} of ${list.length} tracks are downloaded. Play the offline copies?\n\nCancel streams everything from the server.`
+      )
+    ) {
+      log('Streaming the list although offline copies exist (user choice)');
+      return list;
+    }
+    log(
+      `Playing ${available} offline cop${available === 1 ? 'y' : 'ies'} in a list of ${list.length}`
+    );
+    return list.map((item, index) =>
+      copies[index] ? { ...item, streamUrl: copies[index].path, offline: true } : item
+    );
+  }
+
+  /**
+   * For the next episode queued by autoplay: the local file when the episode
+   * is downloaded (never asking mid-playback), otherwise the given URL.
+   */
+  function resolveAutoplayUrl(itemId, streamUrl) {
+    if (getPlaybackMode() === PLAYBACK_MODES.STREAM) {
+      return streamUrl;
+    }
+    const local = findLocalCopy(itemId);
+    if (!local) {
+      return streamUrl;
+    }
+    log(`Autoplay will use the offline copy of ${local.title}`);
+    return local.path;
+  }
+
   async function showDownloadsFolder() {
     try {
       const directory = await ensureDirectory();
@@ -841,6 +1004,11 @@ function createOfflineDownloadManager({
     removeDownload,
     retryDownload,
     playDownload,
+    findLocalCopy,
+    getPlaybackMode,
+    resolvePlaybackSource,
+    resolvePlaybackList,
+    resolveAutoplayUrl,
     handleFileLoaded,
     showDownloadsFolder,
     showInFinder,
@@ -854,7 +1022,10 @@ function createOfflineDownloadManager({
 module.exports = {
   createOfflineDownloadManager,
   isPluginLocalPath,
+  itemIdFromStreamUrl,
+  sanitizeFileName,
   toMessageData,
+  PLAYBACK_MODES,
   MKDIR_BINARY,
   RM_BINARY,
   isTextSubtitle,

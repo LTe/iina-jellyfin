@@ -527,7 +527,9 @@ body {
 }
 
 .media-action-btn,
-.search-action-btn {
+.search-action-btn,
+.ep-action-btn,
+.track-action-btn {
   font-size: 10px !important;
   padding: 3px 6px !important;
   border-radius: 3px;
@@ -538,8 +540,17 @@ body {
   overflow: hidden;
 }
 
+/* In episode and track rows the button sits next to the text, not in a bar */
+.ep-action-btn,
+.track-action-btn {
+  flex: 0 0 auto;
+  margin-left: 4px;
+}
+
 .media-action-btn:hover,
-.search-action-btn:hover {
+.search-action-btn:hover,
+.ep-action-btn:hover,
+.track-action-btn:hover {
   transform: none;
 }
 

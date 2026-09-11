@@ -747,7 +747,7 @@ window.createSidebarMediaMethods = function createSidebarMediaMethods(debugLog) 
       this.selectedEpisode = null;
       this.selectedSeason = null;
       document.getElementById('playEpisodeBtn').disabled = true;
-      document.getElementById('downloadEpisodeBtn').disabled = true;
+      this.bindSelectedEpisodeButton(null);
       document.getElementById('openEpisodeInJellyfinBtn').disabled = true;
 
       try {
@@ -855,7 +855,9 @@ window.createSidebarMediaMethods = function createSidebarMediaMethods(debugLog) 
               <span class="ep-title">${this.escapeHtml(episodeNum)}. ${this.escapeHtml(title)}${availabilityIcon}</span>
             </div>
             ${duration ? `<span class="ep-duration">${duration}</span>` : ''}
+            ${isAvailable ? this.downloadButtonHtml(episode, 'ep-action-btn') : ''}
           `;
+            this.refreshDownloadButtons(episodeEl);
 
             if (isAvailable) {
               episodeEl.addEventListener('click', () => {
@@ -865,9 +867,16 @@ window.createSidebarMediaMethods = function createSidebarMediaMethods(debugLog) 
                 episodeEl.classList.add('selected');
                 this.selectedEpisode = episode;
                 document.getElementById('playEpisodeBtn').disabled = false;
-                document.getElementById('downloadEpisodeBtn').disabled = false;
                 document.getElementById('openEpisodeInJellyfinBtn').disabled = false;
+                this.bindSelectedEpisodeButton(episode);
               });
+              const downloadBtn = episodeEl.querySelector('[data-action="download"]');
+              if (downloadBtn) {
+                downloadBtn.addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  this.handleDownloadButtonClick(episode);
+                });
+              }
             } else {
               episodeEl.style.cursor = 'not-allowed';
               episodeEl.title = 'This episode is not available on the server';
@@ -910,7 +919,7 @@ window.createSidebarMediaMethods = function createSidebarMediaMethods(debugLog) 
       this.selectedEpisode = null;
       this.selectedSeason = null;
       document.getElementById('playEpisodeBtn').disabled = true;
-      document.getElementById('downloadEpisodeBtn').disabled = true;
+      this.bindSelectedEpisodeButton(null);
       document.getElementById('openEpisodeInJellyfinBtn').disabled = true;
       // Clear episode list and season dropdown so stale data isn't shown next time
       document.getElementById('episodeList').innerHTML = '';
@@ -1388,7 +1397,16 @@ window.createSidebarMediaMethods = function createSidebarMediaMethods(debugLog) 
             ${artists ? `<span class="track-artist">${this.escapeHtml(artists)}</span>` : ''}
           </div>
           ${duration ? `<span class="track-duration">${duration}</span>` : ''}
+          ${this.downloadButtonHtml(track, 'track-action-btn')}
         `;
+        this.refreshDownloadButtons(trackEl);
+        const downloadBtn = trackEl.querySelector('[data-action="download"]');
+        if (downloadBtn) {
+          downloadBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.handleDownloadButtonClick(track);
+          });
+        }
 
         trackEl.addEventListener('click', () => {
           document.querySelectorAll('.track-item').forEach((el) => el.classList.remove('selected'));
@@ -1411,6 +1429,7 @@ window.createSidebarMediaMethods = function createSidebarMediaMethods(debugLog) 
         .map((track) => ({
           streamUrl: this.buildStreamUrl(track),
           title: track.Name || 'Unknown Title',
+          itemId: track.Id,
         }))
         .filter((item) => item.streamUrl);
 
@@ -1483,6 +1502,8 @@ window.createSidebarMediaMethods = function createSidebarMediaMethods(debugLog) 
           iina.postMessage('play-media', {
             streamUrl: streamUrl,
             title: item.Name || 'Unknown Title',
+            // Lets the plugin play a downloaded copy instead of streaming
+            itemId: item.Id,
           });
 
           if (document.getElementById('episodeSection').style.display !== 'none') {

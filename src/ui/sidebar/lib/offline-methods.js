@@ -37,6 +37,8 @@ window.createSidebarOfflineMethods = function createSidebarOfflineMethods(debugL
       this.offlineQualityPresets = DEFAULT_QUALITY_PRESETS.slice();
       this.downloadsPanelReturn = null;
       this.downloadsNoticeTimer = null;
+      this.pendingRemoveId = null;
+      this.pendingRemoveTimer = null;
 
       byId('downloadsBtn').addEventListener('click', () => this.toggleDownloadsPanel());
       byId('closeDownloadsBtn').addEventListener('click', () => this.hideDownloadsPanel());
@@ -301,12 +303,30 @@ window.createSidebarOfflineMethods = function createSidebarOfflineMethods(debugL
       return false;
     },
 
+    /**
+     * The episode picker's own offline button follows the selected episode,
+     * so it reads and behaves exactly like the button in the episode's row.
+     */
+    bindSelectedEpisodeButton(episode) {
+      const button = byId('downloadEpisodeBtn');
+      if (episode) {
+        button.dataset.offlineItemId = episode.Id;
+        this.applyDownloadButtonState(button);
+        return;
+      }
+      delete button.dataset.offlineItemId;
+      delete button.dataset.offlineState;
+      button.textContent = '⬇ Offline';
+      button.title = 'Download for offline playback';
+      button.disabled = true;
+    },
+
     downloadSelectedEpisode() {
       if (!this.selectedEpisode) {
         debugLog('No episode selected to download');
         return false;
       }
-      return this.requestOfflineDownload(this.selectedEpisode);
+      return this.handleDownloadButtonClick(this.selectedEpisode);
     },
 
     playOfflineDownload(itemId) {
@@ -486,19 +506,42 @@ window.createSidebarOfflineMethods = function createSidebarOfflineMethods(debugL
         this.revealOfflineDownload(entry.itemId);
       } else if (action === 'remove') {
         // Removing deletes files, so the first click only arms the button.
-        if (button.dataset.confirm === 'true') {
+        if (this.pendingRemoveId === entry.itemId) {
+          this.disarmRemoveButton();
           this.removeOfflineDownload(entry.itemId);
           return;
         }
-        button.dataset.confirm = 'true';
-        button.textContent = 'Confirm?';
-        setTimeout(() => {
-          if (button.isConnected) {
-            button.dataset.confirm = 'false';
-            button.textContent = 'Remove';
-          }
-        }, CONFIRM_TIMEOUT_MS);
+        this.armRemoveButton(entry.itemId, button);
       }
+    },
+
+    /**
+     * The armed state lives on the sidebar, not on the button: a progress
+     * update re-renders the list, and the fresh button must still confirm.
+     */
+    armRemoveButton(itemId, button) {
+      clearTimeout(this.pendingRemoveTimer);
+      this.pendingRemoveId = itemId;
+      button.textContent = 'Confirm?';
+      this.pendingRemoveTimer = setTimeout(() => {
+        this.disarmRemoveButton();
+        const current = this.removeButtonFor(itemId);
+        if (current) {
+          current.textContent = 'Remove';
+        }
+      }, CONFIRM_TIMEOUT_MS);
+    },
+
+    disarmRemoveButton() {
+      clearTimeout(this.pendingRemoveTimer);
+      this.pendingRemoveTimer = null;
+      this.pendingRemoveId = null;
+    },
+
+    removeButtonFor(itemId) {
+      return byId('downloadsList').querySelector(
+        `.download-item[data-download-id="${itemId}"] [data-action="remove"]`
+      );
     },
 
     createDownloadEntryElement(entry) {
@@ -529,7 +572,7 @@ window.createSidebarOfflineMethods = function createSidebarOfflineMethods(debugL
             ${actions
               .map(
                 (action) =>
-                  `<button class="button ${action.secondary ? 'secondary ' : ''}media-action-btn download-action-btn" data-action="${action.action}">${action.label}</button>`
+                  `<button class="button ${action.secondary ? 'secondary ' : ''}media-action-btn download-action-btn" data-action="${action.action}">${action.action === 'remove' && this.pendingRemoveId === entry.itemId ? 'Confirm?' : action.label}</button>`
               )
               .join('')}
           </div>

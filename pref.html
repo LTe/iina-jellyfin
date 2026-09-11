@@ -223,6 +223,28 @@
       </p>
     </div>
 
+    <div class="pref-section">
+      <p>When a downloaded copy exists:</p>
+      <label
+        ><input type="radio" name="offline_playback" value="local" /> Play the downloaded
+        copy</label
+      ><br />
+      <label
+        ><input type="radio" name="offline_playback" value="ask" /> Ask whether to play the copy or
+        stream</label
+      ><br />
+      <label
+        ><input type="radio" name="offline_playback" value="stream" /> Always stream from the
+        server</label
+      >
+      <p class="small secondary pref-help">
+        Applies whenever an item is played from the Jellyfin browser, including album playback and
+        the next episode queued by autoplay (which never asks). The downloaded file opens with its
+        saved subtitles and title; playback progress is not reported to the server while playing
+        offline.
+      </p>
+    </div>
+
     <div class="section-header">Notifications & UI</div>
 
     <div class="pref-section">

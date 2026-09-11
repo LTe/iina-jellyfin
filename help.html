@@ -157,7 +157,12 @@
         <li>
           The file and all of its external subtitles are downloaded; progress shows on the button
         </li>
-        <li>When done the button reads <strong>▶ Offline</strong> and plays the local copy</li>
+        <li>
+          When done the button reads <strong>▶ Offline</strong> and plays the local copy. Playing
+          the item any other way (its row, the episode picker, an album, autoplay) also opens the
+          downloaded file instead of streaming; the preferences can make the plugin ask first or
+          always stream
+        </li>
         <li>
           The <strong>Downloads</strong> button opens the Downloads panel, which works even when the
           server is unreachable: play, reveal in Finder, remove, cancel or retry downloads there
@@ -166,7 +171,10 @@
       <div class="note">
         <strong>Folder:</strong> downloads live in the plugin data folder unless a different folder
         is set in the preferences. <strong>Show Offline Downloads Folder</strong> in the menu
-        reveals it.
+        reveals it. Files are named after their title (<code>Show S01E02 - Pilot.mkv</code>,
+        <code>Big Film (2020).mkv</code>) with subtitles as sidecars (<code
+          >Show S01E02 - Pilot.eng.srt</code
+        >).
       </div>
     </div>
 
