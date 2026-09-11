@@ -35,10 +35,10 @@ describe('classifyPlaybackReport', () => {
       positionTicks: 7,
       mediaSourceId: null,
     });
-    expect(classifyPlaybackReport(`${SERVER}/UserPlayedItems/a?ApiKey=k`)).toEqual({
+    expect(classifyPlaybackReport(`${SERVER}/UserPlayedItems/item-12?ApiKey=k`)).toEqual({
       kind: 'watched',
       serverUrl: SERVER,
-      itemId: 'a',
+      itemId: 'item-12',
       watched: true,
     });
     expect(
@@ -100,7 +100,7 @@ describe('createPlaybackReportRecorder', () => {
   });
 
   it('reports rejected and failed reports as undelivered', async () => {
-    const failing = setup(async () => ({ statusCode: 503 }));
+    const failing = setup(async () => ({ statusCode: 400 }));
     await failing.wrapped.post(`${SERVER}/UserPlayedItems/a`);
     expect(failing.onOutcome).toHaveBeenCalledWith({
       kind: 'watched',
@@ -142,11 +142,12 @@ describe('createPlaybackSyncQueue', () => {
   let log;
 
   function createQueue(options = {}) {
-    return createPlaybackSyncQueue({
+    const write = vi.fn((path, content) => files.set(path, content));
+    const queue = createPlaybackSyncQueue({
       file: {
         exists: vi.fn((path) => files.has(path)),
         read: vi.fn((path) => files.get(path)),
-        write: vi.fn((path, content) => files.set(path, content)),
+        write,
       },
       http,
       preferences: { get: vi.fn((key) => prefs.get(key)) },
@@ -158,6 +159,8 @@ describe('createPlaybackSyncQueue', () => {
       log,
       ...options,
     });
+    queue.writeCount = () => write.mock.calls.length;
+    return queue;
   }
 
   const stored = () => JSON.parse(files.get(QUEUE_FILE));
@@ -217,6 +220,24 @@ describe('createPlaybackSyncQueue', () => {
     expect(log).toHaveBeenCalledWith(`Synced playback of a with ${SERVER}`);
   });
 
+  it('keeps items apart by server and id, and strips trailing slashes', async () => {
+    const queue = createQueue();
+    queue.record(undeliveredStop({ serverUrl: `${SERVER}//` }));
+    queue.record(undeliveredStop({ serverUrl: 'http://other/', positionTicks: 5 }));
+    queue.record(undeliveredStop({ itemId: 'b', positionTicks: 6 }));
+    expect(queue.pending()).toEqual([
+      expect.objectContaining({ serverUrl: SERVER, itemId: 'a', positionTicks: 1200 }),
+      expect.objectContaining({ serverUrl: 'http://other', itemId: 'a', positionTicks: 5 }),
+      expect.objectContaining({ serverUrl: SERVER, itemId: 'b', positionTicks: 6 }),
+    ]);
+    // Only the matching entry is touched
+    queue.record(undeliveredStop({ delivered: true }));
+    expect(queue.pending().map((entry) => [entry.serverUrl, entry.itemId])).toEqual([
+      ['http://other', 'a'],
+      [SERVER, 'b'],
+    ]);
+  });
+
   it('merges reports per item and drops what a delivered report covers', async () => {
     const queue = createQueue();
     queue.record({ ...undeliveredStop(), kind: 'progress', positionTicks: 100 });
@@ -249,12 +270,16 @@ describe('createPlaybackSyncQueue', () => {
     expect(queue.pending()).toEqual([]);
     expect(stored()).toEqual([]);
 
-    // Delivered reports for unknown items and junk change nothing
-    const writes = files.get(QUEUE_FILE);
+    // Delivered reports for unknown items and junk change nothing, and a
+    // delivered report never starts a sync
+    const writes = queue.writeCount();
+    http.post.mockClear();
     queue.record(undeliveredStop({ itemId: 'zzz', delivered: true }));
     queue.record({ kind: 'stopped', serverUrl: SERVER, positionTicks: 5, delivered: false });
     queue.record(null);
-    expect(files.get(QUEUE_FILE)).toBe(writes);
+    expect(queue.writeCount()).toBe(writes);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(http.post).not.toHaveBeenCalled();
     // An undelivered zero position alone is nothing to keep
     queue.record(undeliveredStop({ itemId: 'b', positionTicks: 0 }));
     expect(queue.pending()).toEqual([]);
@@ -280,6 +305,19 @@ describe('createPlaybackSyncQueue', () => {
     expect(queue.pending()).toEqual([]);
     await vi.advanceTimersByTimeAsync(60000);
     expect(http.post).toHaveBeenCalledTimes(3);
+  });
+
+  it('removes only the entries that went out', async () => {
+    http.post.mockImplementation(async (url, options) =>
+      options.data && options.data.ItemId === 'broken' ? { statusCode: 400 } : { statusCode: 204 }
+    );
+    const queue = createQueue();
+    queue.record(undeliveredStop({ itemId: 'fine' }));
+    queue.record(undeliveredStop({ itemId: 'broken' }));
+    queue.record(undeliveredStop({ itemId: 'also-fine' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.pending().map((entry) => entry.itemId)).toEqual(['broken']);
+    expect(stored().map((entry) => entry.itemId)).toEqual(['broken']);
   });
 
   it('delivers the watched flag after the position and keeps it on failure', async () => {
