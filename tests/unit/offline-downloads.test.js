@@ -793,6 +793,48 @@ describe('createOfflineDownloadManager', () => {
     });
   });
 
+  describe('read-only mode', () => {
+    it('reads the manifest fresh every time and never touches it', () => {
+      const { files } = env;
+      const reader = createOfflineDownloadManager({
+        file: env.file,
+        utils: env.utils,
+        http: env.http,
+        core: env.core,
+        mpv: env.mpv,
+        preferences: env.preferences,
+        fetchPlaybackInfo: env.fetchPlaybackInfo,
+        buildJellyfinHeaders: env.buildJellyfinHeaders,
+        loadStoredServers: env.loadStoredServers,
+        transport: env.transport,
+        notifyViews: env.notifyViews,
+        openMedia: env.openMedia,
+        log: env.log,
+        readOnly: true,
+      });
+      expect(reader.listDownloads()).toEqual([]);
+
+      files.set(
+        '@data/offline/manifest.json',
+        JSON.stringify([{ itemId: 'a', status: 'downloading', progress: 40, title: 'A' }])
+      );
+      // In-flight entries stay as they are: another instance is downloading
+      expect(reader.listDownloads()[0]).toMatchObject({ status: 'downloading', progress: 40 });
+
+      files.set(
+        '@data/offline/manifest.json',
+        JSON.stringify([{ itemId: 'a', status: 'downloading', progress: 70, title: 'A' }])
+      );
+      expect(reader.snapshot().downloads[0].progress).toBe(70);
+      expect(env.file.write).not.toHaveBeenCalled();
+      expect(env.log).not.toHaveBeenCalledWith(expect.stringContaining('Loaded'));
+      expect(env.manager.listDownloads()[0]).toMatchObject({
+        status: 'failed',
+        error: 'Interrupted before the download finished',
+      });
+    });
+  });
+
   describe('isDownloadable', () => {
     it('accepts movies, episodes and songs with ids', () => {
       expect(env.manager.isDownloadable(MOVIE)).toBe(true);

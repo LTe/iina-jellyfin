@@ -143,6 +143,27 @@ function isTextSubtitle(stream) {
   return Boolean(stream && stream.Type === 'Subtitle' && stream.IsTextSubtitleStream === true);
 }
 
+// Every message a webview can send about offline downloads; the player entry
+// relays these to whoever runs the downloads.
+const OFFLINE_MESSAGES = [
+  'get-offline-downloads',
+  'offline-download',
+  'offline-cancel',
+  'offline-remove',
+  'offline-retry',
+  'play-offline',
+  'offline-show-in-finder',
+  'offline-open-folder',
+  'offline-choose-folder',
+  'offline-set-quality',
+];
+
+/**
+ * The download manager. One instance owns the downloads and the manifest
+ * (in IINA that is the global entry, which outlives player windows); player
+ * windows create it with `readOnly` to look up finished downloads for local
+ * playback, always reading the manifest fresh from disk and never writing.
+ */
 function createOfflineDownloadManager({
   file,
   utils,
@@ -156,6 +177,7 @@ function createOfflineDownloadManager({
   transport,
   notifyViews,
   openMedia,
+  readOnly = false,
   log,
 }) {
   let entries = [];
@@ -240,6 +262,10 @@ function createOfflineDownloadManager({
   }
 
   function getEntries() {
+    if (readOnly) {
+      // Another instance owns the manifest and may change it at any time
+      return readManifest();
+    }
     const directory = getDirectory();
     if (loadedFromDirectory !== directory) {
       entries = readManifest();
@@ -976,7 +1002,8 @@ function createOfflineDownloadManager({
       'offline-choose-folder': () => chooseDownloadFolder(),
       'offline-set-quality': (data) => setQuality(data && data.quality),
     };
-    for (const [name, handler] of Object.entries(handlers)) {
+    for (const name of OFFLINE_MESSAGES) {
+      const handler = handlers[name];
       view.onMessage(name, (data) => {
         // An exception in IINA's message callback is only visible in its log;
         // report it and keep the UI informed instead.
@@ -1023,6 +1050,7 @@ module.exports = {
   createOfflineDownloadManager,
   isPluginLocalPath,
   itemIdFromStreamUrl,
+  OFFLINE_MESSAGES,
   sanitizeFileName,
   toMessageData,
   PLAYBACK_MODES,

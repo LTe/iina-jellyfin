@@ -9,7 +9,7 @@ const { createPlaybackTrackingManager } = require('./lib/playback-tracking.js');
 const { createAutoplayManager } = require('./lib/autoplay-manager.js');
 const { createMediaActionsManager } = require('./lib/media-actions.js');
 const { createDownloadTransport } = require('./lib/download-transport.js');
-const { createOfflineDownloadManager } = require('./lib/offline-downloads.js');
+const { createOfflineDownloadManager, OFFLINE_MESSAGES } = require('./lib/offline-downloads.js');
 
 const {
   core,
@@ -155,6 +155,14 @@ function notifyViews(name, data) {
   }
 }
 
+// IINA runs this entry once per player window. The global entry outlives the
+// windows and runs the downloads for all of them; this window only reads the
+// manifest (for local playback) and relays the webview messages there. Without
+// a global entry this window runs the downloads itself.
+const hasGlobalEntry = Boolean(
+  global && typeof global.postMessage === 'function' && typeof global.onMessage === 'function'
+);
+
 const offlineDownloads = createOfflineDownloadManager({
   file,
   utils,
@@ -170,8 +178,52 @@ const offlineDownloads = createOfflineDownloadManager({
   // Downloaded files open exactly like streamed ones (respecting the
   // open_in_new_window preference); the path simply is local.
   openMedia: (data) => handlePlayMedia(data),
+  readOnly: hasGlobalEntry,
   log: debugLog,
 });
+
+// Stand-in for the global entry when there is none: the messages loop back
+// into this window's own manager and its replies go to the webviews.
+const localOfflineHandlers = {};
+if (hasGlobalEntry) {
+  global.onMessage('offline-downloads', (data) => notifyViews('offline-downloads', data));
+  global.onMessage('offline-play', (data) => {
+    if (data && data.streamUrl) {
+      handlePlayMedia(data);
+    }
+  });
+  global.onMessage('offline-osd', (data) => {
+    if (data && data.message) {
+      core.osd(data.message);
+    }
+  });
+  // Registers this window with the global entry, which then keeps it updated
+  global.postMessage('get-offline-downloads', {});
+} else {
+  offlineDownloads.registerMessageHandlers({
+    onMessage(name, callback) {
+      localOfflineHandlers[name] = callback;
+    },
+    postMessage: notifyViews,
+  });
+}
+
+function sendOfflineMessage(name, data) {
+  if (hasGlobalEntry) {
+    global.postMessage(name, data);
+    return;
+  }
+  localOfflineHandlers[name](data);
+}
+
+/**
+ * Forward every offline message a webview can send.
+ */
+function relayOfflineMessages(view) {
+  for (const name of OFFLINE_MESSAGES) {
+    view.onMessage(name, (data) => sendOfflineMessage(name, data));
+  }
+}
 
 /**
  * Compare two Jellyfin base URLs by host and port, ignoring the scheme and any
@@ -390,7 +442,7 @@ function openJellyfinStandaloneWindow(sessionData) {
       }
     });
 
-    offlineDownloads.registerMessageHandlers(standaloneWindow);
+    relayOfflineMessages(standaloneWindow);
 
     // Open the window
     standaloneWindow.open();
@@ -426,12 +478,10 @@ function openJellyfinStandaloneWindow(sessionData) {
 menu.addItem(menu.item('Download Jellyfin Subtitles', manualDownloadSubtitles));
 menu.addItem(menu.item('Set Jellyfin Title', manualSetTitle));
 menu.addItem(
-  menu.item('Show Offline Downloads Folder', () => {
-    offlineDownloads.showDownloadsFolder();
-  })
+  menu.item('Show Offline Downloads Folder', () => sendOfflineMessage('offline-open-folder'))
 );
 menu.addItem(
-  menu.item('Choose Offline Downloads Folder…', () => offlineDownloads.chooseDownloadFolder())
+  menu.item('Choose Offline Downloads Folder…', () => sendOfflineMessage('offline-choose-folder'))
 );
 menu.addItem(
   menu.item(
@@ -780,7 +830,7 @@ event.on('iina.window-loaded', () => {
     }
   });
 
-  offlineDownloads.registerMessageHandlers(sidebar);
+  relayOfflineMessages(sidebar);
 
   // Send initial server data to sidebar after a brief delay
   setTimeout(() => {

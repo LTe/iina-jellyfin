@@ -86,9 +86,14 @@ describe('plugin main entry', () => {
         'mpv.pause.changed',
       ]);
       expect(Object.keys(fake.iina.global.handlers).sort()).toEqual([
+        'offline-downloads',
+        'offline-osd',
+        'offline-play',
         'player-created',
         'player-creation-failed',
       ]);
+      // The window announces itself to the global entry, which owns downloads
+      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('get-offline-downloads', {});
       expect(logged(fake)).toContain('DEBUG: Jellyfin Subtitles Plugin loaded');
     });
 
@@ -119,19 +124,31 @@ describe('plugin main entry', () => {
       );
     });
 
-    it('opens the offline downloads folder', async () => {
+    it('asks the global entry to show or change the offline downloads folder', async () => {
       const fake = await loadPlugin();
+      fake.menuItem('Show Offline Downloads Folder').callback();
+      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('offline-open-folder', undefined);
+      fake.menuItem('Choose Offline Downloads Folder…').callback();
+      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('offline-choose-folder', undefined);
+      expect(fake.iina.utils.exec).not.toHaveBeenCalled();
+      expect(fake.iina.utils.chooseFile).not.toHaveBeenCalled();
+    });
+
+    it('handles the folder actions itself without a global entry', async () => {
+      const fake = await loadPlugin({
+        mutate: (f) => {
+          f.iina.global = undefined;
+        },
+      });
       fake.menuItem('Show Offline Downloads Folder').callback();
       await flushPromises();
       expect(fake.iina.utils.exec).toHaveBeenCalledWith('/bin/mkdir', ['-p', '/abs/data/offline']);
       expect(fake.iina.file.showInFinder).toHaveBeenCalledWith('@data/offline');
-    });
 
-    it('lets the user choose the offline downloads folder', async () => {
-      const fake = await loadPlugin();
       // IINA answers the folder dialog with a promise
       fake.iina.utils.chooseFile.mockResolvedValue('/Volumes/Media/Offline');
-      await fake.menuItem('Choose Offline Downloads Folder…').callback();
+      fake.menuItem('Choose Offline Downloads Folder…').callback();
+      await flushPromises();
       expect(fake.iina.utils.chooseFile).toHaveBeenCalledWith(
         'Choose the folder for offline downloads',
         { chooseDir: true }
@@ -283,13 +300,14 @@ describe('plugin main entry', () => {
         servers: [expect.objectContaining({ id: 'srv-1' })],
         activeServerId: null,
       });
+      // Offline messages are relayed to the global entry, replies come back
+      fake.iina.global.postMessage.mockClear();
       win.emit('get-offline-downloads');
+      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('get-offline-downloads', undefined);
+      fake.iina.global.emit('offline-downloads', { downloads: [], quality: 'original' });
       expect(win.postMessage).toHaveBeenCalledWith('offline-downloads', {
         downloads: [],
-        directory: '/abs/data/offline',
         quality: 'original',
-        qualityPresets: expect.any(Array),
-        error: null,
       });
     });
 
@@ -540,8 +558,55 @@ describe('plugin main entry', () => {
       expect(logged(fake)).toContain('DEBUG: Invalid open-external-url message - missing URL');
     });
 
-    it('registers the offline download messages', async () => {
+    it('relays the offline messages to the global entry and back', async () => {
       const fake = await loadWithSidebar();
+      const sidebar = fake.iina.sidebar;
+      const global = fake.iina.global;
+
+      const request = {
+        item: { Id: ITEM, Type: 'Movie', Name: 'Film' },
+        serverUrl: SERVER,
+        accessToken: 'tok',
+      };
+      sidebar.emit('offline-download', request);
+      expect(global.postMessage).toHaveBeenCalledWith('offline-download', request);
+      sidebar.emit('offline-cancel', { itemId: ITEM });
+      expect(global.postMessage).toHaveBeenCalledWith('offline-cancel', { itemId: ITEM });
+      // Nothing is downloaded by this window itself
+      expect(fake.iina.http.download).not.toHaveBeenCalled();
+      expect(fake.iina.utils.exec).not.toHaveBeenCalled();
+
+      // State from the global entry reaches both views
+      const snapshot = { downloads: [{ itemId: ITEM, status: 'downloading', progress: 5 }] };
+      global.emit('offline-downloads', snapshot);
+      expect(sidebar.postMessage).toHaveBeenCalledWith('offline-downloads', snapshot);
+      expect(fake.iina.standaloneWindow.postMessage).toHaveBeenCalledWith(
+        'offline-downloads',
+        snapshot
+      );
+
+      // Playback and OSD requests from the global entry run in this window
+      global.emit('offline-play', { streamUrl: '/abs/data/offline/Film.mkv', title: 'Film' });
+      expect(fake.iina.core.open).toHaveBeenCalledWith('/abs/data/offline/Film.mkv');
+      expect(fake.iina.mpv.set).toHaveBeenCalledWith('force-media-title', 'Film');
+      global.emit('offline-play', undefined);
+      global.emit('offline-play', {});
+      expect(fake.iina.core.open).toHaveBeenCalledTimes(1);
+
+      global.emit('offline-osd', { message: 'Downloaded for offline: Film' });
+      expect(fake.iina.core.osd).toHaveBeenCalledWith('Downloaded for offline: Film');
+      fake.iina.core.osd.mockClear();
+      global.emit('offline-osd', undefined);
+      global.emit('offline-osd', {});
+      expect(fake.iina.core.osd).not.toHaveBeenCalled();
+    });
+
+    it('runs the downloads itself when there is no global entry', async () => {
+      const fake = await loadWithSidebar({
+        mutate: (f) => {
+          f.iina.global = undefined;
+        },
+      });
       const sidebar = fake.iina.sidebar;
 
       sidebar.emit('get-offline-downloads');
@@ -596,12 +661,7 @@ describe('plugin main entry', () => {
         if (name === 'offline-downloads') throw new Error('view gone');
       });
 
-      fake.iina.sidebar.emit('offline-download', {
-        item: { Id: ITEM, Type: 'Movie', Name: 'Film' },
-        serverUrl: SERVER,
-        accessToken: 'tok',
-      });
-      await flushPromises(20);
+      fake.iina.global.emit('offline-downloads', { downloads: [] });
 
       expect(logged(fake)).toContain(
         'DEBUG: Could not post offline-downloads to a view: view gone'

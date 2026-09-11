@@ -28,6 +28,9 @@ export function createPluginHost({ page, dataDir, preferences = {} }) {
     asked: [],
   };
   const sidebarHandlers = {};
+  const globalHandlers = {};
+  const playerGlobalHandlers = {};
+  const PLAYER_LABEL = 'player-0';
   let pageReady = false;
   const pendingToPage = [];
 
@@ -177,7 +180,18 @@ export function createPluginHost({ page, dataDir, preferences = {} }) {
       getNumber: () => 0,
     },
     sidebar,
-    global: { onMessage() {}, postMessage() {} },
+    // The player side of IINA's global messaging: messages go to the global
+    // entry with this window's label, replies come back by label.
+    global: {
+      onMessage(name, callback) {
+        playerGlobalHandlers[name] = callback;
+      },
+      postMessage(name, data) {
+        const handler = globalHandlers[name];
+        if (handler) handler(data, PLAYER_LABEL);
+      },
+      getLabel: () => 'e2e',
+    },
     standaloneWindow: {
       loadFile() {},
       onMessage() {},
@@ -189,8 +203,34 @@ export function createPluginHost({ page, dataDir, preferences = {} }) {
     },
   };
 
+  // The `iina` object of the global entry: same file system, preferences and
+  // network, no player, and the controller side of the global messaging.
+  const globalIina = {
+    console: iina.console,
+    preferences: iina.preferences,
+    utils: iina.utils,
+    file: iina.file,
+    http: iina.http,
+    global: {
+      onMessage(name, callback) {
+        globalHandlers[name] = callback;
+      },
+      postMessage(target, name, data) {
+        if (target === null || target === PLAYER_LABEL) {
+          const handler = playerGlobalHandlers[name];
+          if (handler) handler(data);
+        }
+      },
+      createPlayerInstance() {
+        record.createdPlayers = (record.createdPlayers || 0) + 1;
+        return record.createdPlayers;
+      },
+    },
+  };
+
   const host = {
     iina,
+    globalIina,
     record,
     prefs,
     dataDir,
@@ -207,6 +247,9 @@ export function createPluginHost({ page, dataDir, preferences = {} }) {
       for (const key of Object.keys(require.cache)) {
         if (key.startsWith(path.join(projectRoot, 'src'))) delete require.cache[key];
       }
+      // IINA loads the global entry once, then the player entry per window
+      globalThis.iina = globalIina;
+      require(path.join(projectRoot, 'src/global.js'));
       globalThis.iina = iina;
       require(path.join(projectRoot, 'src/index.js'));
       host.emit('iina.window-loaded');

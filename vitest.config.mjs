@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config';
 // list must stay at 100% coverage; the thresholds below enforce it.
 export const coveredFiles = [
   'src/index.js',
+  'src/global.js',
   'src/lib/autoplay-manager.js',
   'src/lib/download-profile.js',
   'src/lib/download-transport.js',
