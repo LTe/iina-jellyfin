@@ -395,6 +395,7 @@ function openJellyfinStandaloneWindow(sessionData) {
     // Send session data after a brief delay
     setTimeout(() => {
       standaloneWindow.postMessage('client-identity', getClientIdentity());
+      standaloneWindow.postMessage('offline-downloads', offlineDownloads.snapshot());
       // Send multi-server list (sidebar will auto-connect to active server)
       const servers = loadStoredServers();
       const activeServerId = getActiveServerId();
@@ -427,9 +428,7 @@ menu.addItem(
   })
 );
 menu.addItem(
-  menu.item('Choose Offline Downloads Folder…', () => {
-    offlineDownloads.chooseDownloadFolder();
-  })
+  menu.item('Choose Offline Downloads Folder…', () => offlineDownloads.chooseDownloadFolder())
 );
 menu.addItem(
   menu.item(
@@ -777,6 +776,8 @@ event.on('iina.window-loaded', () => {
   // Send initial server data to sidebar after a brief delay
   setTimeout(() => {
     sidebar.postMessage('client-identity', getClientIdentity());
+    // The downloads panel and the quality picker work without a server
+    sidebar.postMessage('offline-downloads', offlineDownloads.snapshot());
     const servers = loadStoredServers();
     const activeServerId = getActiveServerId();
     if (servers.length > 0) {

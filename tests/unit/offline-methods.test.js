@@ -114,6 +114,17 @@ describe('sidebar offline methods', () => {
       expect(byId('downloadsBadge').style.display).toBe('none');
       expect(byId('downloadsDirectory').textContent).toBe('');
       expect(button.textContent).toBe('⬇ Offline');
+      // IINA hands over a reply it could not serialize as an empty message
+      expect(byId('downloadsNotice').textContent).toBe(
+        'The plugin sent an unreadable downloads state'
+      );
+      expect(byId('downloadsNotice').style.display).toBe('block');
+
+      bridge.deliver('offline-downloads', {
+        downloads: [],
+        error: 'Offline downloads unavailable: disk gone',
+      });
+      expect(byId('downloadsNotice').textContent).toBe('Offline downloads unavailable: disk gone');
 
       bridge.deliver('offline-downloads', { downloads: 'junk' });
       expect(sidebar.offlineDownloads).toEqual([]);
@@ -446,10 +457,26 @@ describe('sidebar offline methods', () => {
       { id: '500', label: '500 Kb/s' },
     ];
 
-    it('starts disabled and fills the picker from the plugin', () => {
+    it('offers the built-in presets before the plugin answers', () => {
       const select = byId('downloadQualitySelect');
-      expect(select.disabled).toBe(true);
-      expect(select.options).toHaveLength(0);
+      expect(select.disabled).toBe(false);
+      expect(
+        Array.from(select.options).map((option) => [option.value, option.textContent])
+      ).toEqual([
+        ['original', 'Original quality'],
+        ['8000', '8 Mb/s'],
+        ['4000', '4 Mb/s'],
+        ['2000', '2 Mb/s'],
+        ['1000', '1 Mb/s'],
+        ['500', '500 Kb/s'],
+        ['250', '250 Kb/s'],
+      ]);
+      expect(select.value).toBe('original');
+      expect(sidebar.offlineQuality).toBe('original');
+    });
+
+    it('takes the presets and the choice from the plugin', () => {
+      const select = byId('downloadQualitySelect');
 
       bridge.deliver('offline-downloads', {
         downloads: [],

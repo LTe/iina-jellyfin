@@ -45,7 +45,7 @@ describe('createDownloadTransport', () => {
     expect(transport.hasCurl()).toBe(true);
     expect(transport.hasCurl()).toBe(true);
     expect(utils.fileInPath).toHaveBeenCalledTimes(1);
-    expect(utils.fileInPath).toHaveBeenCalledWith('curl');
+    expect(utils.fileInPath).toHaveBeenCalledWith('/usr/bin/curl');
     expect(log).toHaveBeenCalledWith('curl available for downloads: true');
   });
 
@@ -72,7 +72,7 @@ describe('createDownloadTransport', () => {
 
       expect(utils.exec).toHaveBeenCalledTimes(1);
       const [command, args, cwd, stdoutHook, stderrHook] = utils.exec.mock.calls[0];
-      expect(command).toBe('curl');
+      expect(command).toBe('/usr/bin/curl');
       expect(args).toEqual([
         '--location',
         '--fail',
@@ -250,7 +250,7 @@ describe('createDownloadTransport', () => {
 
       await expect(transport.cancel('@data/offline/a.b (1).mkv')).resolves.toBe(true);
 
-      expect(utils.exec).toHaveBeenCalledWith('pkill', [
+      expect(utils.exec).toHaveBeenCalledWith('/usr/bin/pkill', [
         '-f',
         'curl .*--output /abs/data/offline/a\\.b \\(1\\)\\.mkv ',
       ]);

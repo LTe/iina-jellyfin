@@ -123,14 +123,15 @@ describe('plugin main entry', () => {
       const fake = await loadPlugin();
       fake.menuItem('Show Offline Downloads Folder').callback();
       await flushPromises();
-      expect(fake.iina.utils.exec).toHaveBeenCalledWith('mkdir', ['-p', '/abs/data/offline']);
+      expect(fake.iina.utils.exec).toHaveBeenCalledWith('/bin/mkdir', ['-p', '/abs/data/offline']);
       expect(fake.iina.file.showInFinder).toHaveBeenCalledWith('@data/offline');
     });
 
     it('lets the user choose the offline downloads folder', async () => {
       const fake = await loadPlugin();
-      fake.iina.utils.chooseFile.mockReturnValue('/Volumes/Media/Offline');
-      fake.menuItem('Choose Offline Downloads Folder…').callback();
+      // IINA answers the folder dialog with a promise
+      fake.iina.utils.chooseFile.mockResolvedValue('/Volumes/Media/Offline');
+      await fake.menuItem('Choose Offline Downloads Folder…').callback();
       expect(fake.iina.utils.chooseFile).toHaveBeenCalledWith(
         'Choose the folder for offline downloads',
         { chooseDir: true }
@@ -192,6 +193,10 @@ describe('plugin main entry', () => {
         'client-identity',
         expect.objectContaining({ deviceId: 'device-1' })
       );
+      expect(win.postMessage).toHaveBeenCalledWith(
+        'offline-downloads',
+        expect.objectContaining({ downloads: [], quality: 'original' })
+      );
       expect(win.postMessage).toHaveBeenCalledWith('servers-list', {
         servers: [expect.objectContaining({ id: 'srv-1' })],
         activeServerId: null,
@@ -212,7 +217,7 @@ describe('plugin main entry', () => {
       );
       vi.advanceTimersByTime(1000);
       const names = fake.iina.standaloneWindow.postMessage.mock.calls.map((call) => call[0]);
-      expect(names).toEqual(['client-identity', 'servers-list']);
+      expect(names).toEqual(['client-identity', 'offline-downloads', 'servers-list']);
     });
 
     it('falls back when sidebar.show throws', async () => {
@@ -284,6 +289,7 @@ describe('plugin main entry', () => {
         directory: '/abs/data/offline',
         quality: 'original',
         qualityPresets: expect.any(Array),
+        error: null,
       });
     });
 
@@ -428,7 +434,14 @@ describe('plugin main entry', () => {
       const fake = await loadWithSidebar();
       vi.advanceTimersByTime(500);
       const names = fake.iina.sidebar.postMessage.mock.calls.map((call) => call[0]);
-      expect(names).toEqual(['client-identity']);
+      expect(names).toEqual(['client-identity', 'offline-downloads']);
+      expect(fake.iina.sidebar.postMessage).toHaveBeenCalledWith('offline-downloads', {
+        downloads: [],
+        directory: '/abs/data/offline',
+        quality: 'original',
+        qualityPresets: expect.any(Array),
+        error: null,
+      });
     });
 
     it('handles session and server messages', async () => {
@@ -537,6 +550,7 @@ describe('plugin main entry', () => {
         directory: '/abs/data/offline',
         quality: 'original',
         qualityPresets: expect.any(Array),
+        error: null,
       });
 
       routeHttp(fake.iina, [

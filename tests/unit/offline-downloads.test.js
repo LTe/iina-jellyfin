@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QUALITY_PRESETS } from '../../src/lib/download-profile.js';
 import {
   createOfflineDownloadManager,
+  isPluginLocalPath,
+  toMessageData,
+  MKDIR_BINARY,
+  RM_BINARY,
   isTextSubtitle,
   buildDisplayTitle,
   pickContainer,
@@ -94,8 +98,14 @@ function createEnv(options = {}) {
     resolvePath: vi.fn((path) => String(path).replace(/^@data/, '/abs/data')),
     chooseFile: vi.fn(() => options.chosenFolder ?? '/Volumes/Ext/Offline'),
     exec: vi.fn(async (command, args) => {
-      if (command === 'mkdir' && !options.mkdirFails) {
+      if (command === '/bin/mkdir' && !options.mkdirFails) {
         files.set(toIinaPath(args[1]), '<dir>');
+      }
+      if (command === '/bin/rm') {
+        if ('rmResult' in options) {
+          return options.rmResult;
+        }
+        files.delete(toIinaPath(args[1]));
       }
       return { status: 0, stdout: '', stderr: '' };
     }),
@@ -173,6 +183,28 @@ describe('pure helpers', () => {
     expect(sanitizeId('ab-c_1')).toBe('ab-c_1');
     expect(sanitizeId('a b/c.d')).toBe('a_b_c_d');
     expect(sanitizeId(42)).toBe('42');
+  });
+
+  it('knows which paths live in the plugin folders', () => {
+    expect(isPluginLocalPath('@data/offline/a.mkv')).toBe(true);
+    expect(isPluginLocalPath('@tmp/a.mkv')).toBe(true);
+    expect(isPluginLocalPath('/Volumes/Ext/a.mkv')).toBe(false);
+    expect(isPluginLocalPath('@datafiles/a.mkv')).toBe(false);
+    expect(isPluginLocalPath('x@data/a.mkv')).toBe(false);
+    expect(isPluginLocalPath(null)).toBe(false);
+  });
+
+  it('turns state into plain JSON for the webview bridge', () => {
+    expect(toMessageData({ a: undefined, b: 1, c: [undefined, 'x'], d: null })).toEqual({
+      b: 1,
+      c: [null, 'x'],
+      d: null,
+    });
+  });
+
+  it('runs the system tools by absolute path, as IINA requires', () => {
+    expect(MKDIR_BINARY).toBe('/bin/mkdir');
+    expect(RM_BINARY).toBe('/bin/rm');
   });
 
   describe('buildDisplayTitle', () => {
@@ -272,7 +304,35 @@ describe('createOfflineDownloadManager', () => {
         directory: '/abs/data/offline',
         quality: 'original',
         qualityPresets: QUALITY_PRESETS.map(({ id, label }) => ({ id, label })),
+        error: null,
       });
+    });
+
+    it('never throws from snapshot and reports the problem instead', () => {
+      env.utils.resolvePath.mockImplementation(() => {
+        throw new Error('no permission');
+      });
+      expect(env.manager.snapshot()).toEqual({
+        downloads: [],
+        directory: null,
+        quality: 'original',
+        qualityPresets: QUALITY_PRESETS.map(({ id, label }) => ({ id, label })),
+        error: 'Offline downloads unavailable: no permission',
+      });
+      expect(env.log).toHaveBeenCalledWith(
+        'Could not build the offline downloads snapshot: no permission'
+      );
+    });
+
+    it('hands out detached plain-JSON copies of the entries', async () => {
+      env.fetchPlaybackInfo.mockResolvedValue(playbackInfo({ streams: [EXTERNAL_SUB] }));
+      await env.manager.startDownload(request(MOVIE));
+      await waitFor(() => env.entry('movie-1')?.status === 'completed');
+
+      const snapshot = env.manager.snapshot();
+      expect(snapshot.downloads[0].subtitles).toHaveLength(1);
+      snapshot.downloads[0].subtitles.push('junk');
+      expect(env.manager.listDownloads()[0].subtitles).toHaveLength(1);
     });
 
     it('uses the preference when set, without trailing slashes', () => {
@@ -362,6 +422,76 @@ describe('createOfflineDownloadManager', () => {
       });
       expect(env.manager.listDownloads()[0].fileMissing).toBe(true);
       expect(env.log).toHaveBeenCalledWith('Could not check @data/offline/a.mkv: io');
+    });
+  });
+
+  describe('folders outside the plugin data', () => {
+    const EXTERNAL = { preferences: { offline_download_dir: '/Volumes/Ext/jf' } };
+
+    beforeEach(() => {
+      env = createEnv(EXTERNAL);
+    });
+
+    it('replaces the manifest through rm, since IINA refuses to overwrite there', async () => {
+      await env.manager.startDownload(request(MOVIE));
+      await waitFor(() => env.entry('movie-1')?.status === 'completed');
+
+      expect(env.utils.exec).toHaveBeenCalledWith('/bin/mkdir', ['-p', '/Volumes/Ext/jf']);
+      const rmCalls = env.utils.exec.mock.calls.filter((call) => call[0] === '/bin/rm');
+      // The first write finds no file; every later one removes the old manifest
+      expect(rmCalls).toHaveLength(env.file.write.mock.calls.length - 1);
+      expect(rmCalls.length).toBeGreaterThan(0);
+      for (const call of rmCalls) {
+        expect(call[1]).toEqual(['-f', '/Volumes/Ext/jf/manifest.json']);
+      }
+      expect(env.file.delete).not.toHaveBeenCalled();
+      expect(JSON.parse(env.files.get('/Volumes/Ext/jf/manifest.json'))[0]).toMatchObject({
+        status: 'completed',
+        mediaPath: '/Volumes/Ext/jf/movie-1.mkv',
+      });
+    });
+
+    it('deletes files with rm instead of the plugin-only file API', async () => {
+      env.fetchPlaybackInfo.mockResolvedValue(playbackInfo({ streams: [EXTERNAL_SUB] }));
+      await env.manager.startDownload(request(MOVIE));
+      await waitFor(() => env.entry('movie-1')?.status === 'completed');
+      expect(env.files.has('/Volumes/Ext/jf/movie-1.mkv')).toBe(true);
+
+      await expect(env.manager.removeDownload('movie-1')).resolves.toBe(true);
+
+      expect(env.utils.exec).toHaveBeenCalledWith('/bin/rm', ['-f', '/Volumes/Ext/jf/movie-1.mkv']);
+      expect(env.utils.exec).toHaveBeenCalledWith('/bin/rm', [
+        '-f',
+        '/Volumes/Ext/jf/movie-1_sub_3_eng.srt',
+      ]);
+      expect(env.file.delete).not.toHaveBeenCalled();
+      expect(env.files.has('/Volumes/Ext/jf/movie-1.mkv')).toBe(false);
+      expect(env.files.has('/Volumes/Ext/jf/movie-1_sub_3_eng.srt')).toBe(false);
+      expect(env.manager.listDownloads()).toEqual([]);
+    });
+
+    it('reports rm failures', async () => {
+      env = createEnv({ ...EXTERNAL, rmResult: { status: 1 } });
+      await env.manager.startDownload(request(MOVIE));
+      await waitFor(() => env.entry('movie-1')?.status === 'completed');
+      expect(env.log).toHaveBeenCalledWith(
+        'Could not save offline manifest: rm exited with status 1'
+      );
+
+      await env.manager.removeDownload('movie-1');
+      expect(env.log).toHaveBeenCalledWith(
+        'Could not delete /Volumes/Ext/jf/movie-1.mkv: rm exited with status 1'
+      );
+      expect(env.files.has('/Volumes/Ext/jf/movie-1.mkv')).toBe(true);
+    });
+
+    it('treats a missing rm result as a failure', async () => {
+      env = createEnv({ ...EXTERNAL, rmResult: null });
+      await env.manager.startDownload(request(MOVIE));
+      await waitFor(() => env.entry('movie-1')?.status === 'completed');
+      expect(env.log).toHaveBeenCalledWith(
+        'Could not save offline manifest: rm exited with status unknown'
+      );
     });
   });
 
@@ -468,12 +598,13 @@ describe('createOfflineDownloadManager', () => {
       expect(env.core.osd).toHaveBeenCalledWith('Downloaded for offline: Big Film (2020)');
       expect(env.manifest()).toHaveLength(1);
       expect(JSON.stringify(env.manifest())).not.toContain(TOKEN);
-      expect(env.utils.exec).toHaveBeenCalledWith('mkdir', ['-p', '/abs/data/offline']);
+      expect(env.utils.exec).toHaveBeenCalledWith('/bin/mkdir', ['-p', '/abs/data/offline']);
       expect(env.lastSnapshot()).toEqual({
         downloads: [expect.objectContaining({ status: 'completed' })],
         directory: '/abs/data/offline',
         quality: 'original',
         qualityPresets: expect.any(Array),
+        error: null,
       });
       expect(done).toMatchObject({
         quality: 'original',
@@ -1230,7 +1361,7 @@ describe('createOfflineDownloadManager', () => {
   describe('Finder integration', () => {
     it('reveals the downloads folder, creating it first', async () => {
       await expect(env.manager.showDownloadsFolder()).resolves.toBe(true);
-      expect(env.utils.exec).toHaveBeenCalledWith('mkdir', ['-p', '/abs/data/offline']);
+      expect(env.utils.exec).toHaveBeenCalledWith('/bin/mkdir', ['-p', '/abs/data/offline']);
       expect(env.file.showInFinder).toHaveBeenCalledWith('@data/offline');
     });
 
@@ -1453,8 +1584,10 @@ describe('createOfflineDownloadManager', () => {
       expect(env.entry('movie-1')).toMatchObject({ quality: '2000', transcoded: true });
     });
 
-    it('lets the user pick the download folder', () => {
-      expect(env.manager.chooseDownloadFolder()).toBe('/Volumes/Ext/Offline');
+    it('lets the user pick the download folder', async () => {
+      // IINA's chooseFile resolves asynchronously
+      env.utils.chooseFile.mockResolvedValueOnce('/Volumes/Ext/Offline');
+      await expect(env.manager.chooseDownloadFolder()).resolves.toBe('/Volumes/Ext/Offline');
       expect(env.utils.chooseFile).toHaveBeenCalledWith('Choose the folder for offline downloads', {
         chooseDir: true,
       });
@@ -1465,16 +1598,19 @@ describe('createOfflineDownloadManager', () => {
       expect(env.manager.getDirectory()).toBe('/Volumes/Ext/Offline');
     });
 
-    it('keeps the folder when the chooser is cancelled or fails', () => {
+    it('keeps the folder when the chooser is cancelled or fails', async () => {
       env.utils.chooseFile.mockReturnValueOnce('');
-      expect(env.manager.chooseDownloadFolder()).toBeNull();
-      env.utils.chooseFile.mockReturnValueOnce(undefined);
-      expect(env.manager.chooseDownloadFolder()).toBeNull();
+      await expect(env.manager.chooseDownloadFolder()).resolves.toBeNull();
+      env.utils.chooseFile.mockResolvedValueOnce(undefined);
+      await expect(env.manager.chooseDownloadFolder()).resolves.toBeNull();
       env.utils.chooseFile.mockImplementationOnce(() => {
         throw new Error('no dialog');
       });
-      expect(env.manager.chooseDownloadFolder()).toBeNull();
+      await expect(env.manager.chooseDownloadFolder()).resolves.toBeNull();
+      env.utils.chooseFile.mockRejectedValueOnce(new Error('dialog rejected'));
+      await expect(env.manager.chooseDownloadFolder()).resolves.toBeNull();
       expect(env.log).toHaveBeenCalledWith('Folder chooser failed: no dialog');
+      expect(env.log).toHaveBeenCalledWith('Folder chooser failed: dialog rejected');
       expect(env.log).toHaveBeenCalledWith('Folder chooser cancelled');
       expect(env.preferences.set).not.toHaveBeenCalled();
       expect(env.notifyViews).not.toHaveBeenCalled();
@@ -1503,6 +1639,7 @@ describe('createOfflineDownloadManager', () => {
         directory: '/abs/data/offline',
         quality: 'original',
         qualityPresets: expect.any(Array),
+        error: null,
       });
     });
 
@@ -1537,7 +1674,29 @@ describe('createOfflineDownloadManager', () => {
       expect(env.prefs.get('offline_download_quality')).toBe('original');
 
       view.handlers['offline-choose-folder']();
-      expect(env.prefs.get('offline_download_dir')).toBe('/Volumes/Ext/Offline');
+      await waitFor(() => env.prefs.get('offline_download_dir') === '/Volumes/Ext/Offline');
+    });
+
+    it('reports handler failures instead of losing them', async () => {
+      const view = createView();
+      env.manager.registerMessageHandlers(view);
+
+      view.postMessage.mockImplementation(() => {
+        throw new Error('bridge gone');
+      });
+      view.handlers['get-offline-downloads']();
+      expect(env.log).toHaveBeenCalledWith('Message get-offline-downloads failed: bridge gone');
+      expect(env.core.osd).toHaveBeenCalledWith('Offline downloads: bridge gone');
+
+      // Rejections of the asynchronous handlers are reported the same way
+      env.notifyViews.mockImplementation(() => {
+        throw new Error('views gone');
+      });
+      view.handlers['offline-download'](request(MOVIE));
+      await waitFor(() =>
+        env.log.mock.calls.some((call) => call[0] === 'Message offline-download failed: views gone')
+      );
+      expect(env.core.osd).toHaveBeenCalledWith('Offline downloads: views gone');
     });
 
     it('tolerates messages without data', () => {

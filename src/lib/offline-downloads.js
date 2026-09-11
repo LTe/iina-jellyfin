@@ -10,6 +10,9 @@ const {
 
 const DEFAULT_DIRECTORY = '@data/offline';
 const MANIFEST_FILE = 'manifest.json';
+// IINA's utils.exec does not search PATH, so system tools need absolute paths.
+const MKDIR_BINARY = '/bin/mkdir';
+const RM_BINARY = '/bin/rm';
 const DOWNLOADABLE_TYPES = ['Movie', 'Episode', 'Audio'];
 
 const STATUS = {
@@ -26,6 +29,23 @@ function sanitizeId(value) {
 
 function normalizeServerUrl(url) {
   return String(url || '').replace(/\/+$/, '');
+}
+
+/**
+ * Whether a path lives in one of the plugin's own folders. IINA's file API
+ * only overwrites and deletes files there; anywhere else (a folder picked by
+ * the user) has to go through rm.
+ */
+function isPluginLocalPath(path) {
+  return /^@(?:data|tmp)\//.test(String(path));
+}
+
+/**
+ * Plain JSON copy of a value. IINA relays messages to the webview as JSON and
+ * refuses payloads that are not strictly serializable (undefined, NaN, ...).
+ */
+function toMessageData(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 function padNumber(value) {
@@ -137,11 +157,14 @@ function createOfflineDownloadManager({
   /**
    * Let the user pick the download folder with the system dialog and store
    * it. Returns the chosen path, or null when the dialog was cancelled.
+   * IINA's chooseFile answers with a promise.
    */
-  function chooseDownloadFolder() {
+  async function chooseDownloadFolder() {
     let chosen = null;
     try {
-      chosen = utils.chooseFile('Choose the folder for offline downloads', { chooseDir: true });
+      chosen = await utils.chooseFile('Choose the folder for offline downloads', {
+        chooseDir: true,
+      });
     } catch (error) {
       log(`Folder chooser failed: ${error.message}`);
     }
@@ -208,17 +231,36 @@ function createOfflineDownloadManager({
     }
     const resolved = utils.resolvePath(directory);
     log(`Creating offline download directory: ${resolved}`);
-    await utils.exec('mkdir', ['-p', resolved]);
+    await utils.exec(MKDIR_BINARY, ['-p', resolved]);
     if (!file.exists(directory)) {
       throw new Error(`Could not create download directory ${resolved}`);
     }
     return directory;
   }
 
+  async function removeWithRm(path) {
+    const resolved = utils.resolvePath(path);
+    const result = await utils.exec(RM_BINARY, ['-f', resolved]);
+    if (!result || result.status !== 0) {
+      throw new Error(`rm exited with status ${result ? result.status : 'unknown'}`);
+    }
+  }
+
+  /**
+   * Write a file, replacing any previous one. Outside @data and @tmp IINA
+   * refuses to overwrite, so the old file is removed first.
+   */
+  async function writeFile(path, content) {
+    if (!isPluginLocalPath(path) && file.exists(path)) {
+      await removeWithRm(path);
+    }
+    file.write(path, content);
+  }
+
   async function saveManifest() {
     try {
       await ensureDirectory();
-      file.write(manifestPath(), JSON.stringify(getEntries(), null, 2));
+      await writeFile(manifestPath(), JSON.stringify(getEntries(), null, 2));
     } catch (error) {
       log(`Could not save offline manifest: ${error.message}`);
     }
@@ -244,13 +286,30 @@ function createOfflineDownloadManager({
     return getEntries().map(publicEntry);
   }
 
+  /**
+   * State shown by the webviews. Never throws: when the manifest or the
+   * folder cannot be read, the presets still go out together with the error,
+   * so the UI stays usable and says what is wrong.
+   */
   function snapshot() {
-    return {
-      downloads: listDownloads(),
-      directory: utils.resolvePath(getDirectory()),
-      quality: getQualityPreset().id,
-      qualityPresets: listQualityPresets(),
-    };
+    try {
+      return toMessageData({
+        downloads: listDownloads(),
+        directory: utils.resolvePath(getDirectory()),
+        quality: getQualityPreset().id,
+        qualityPresets: listQualityPresets(),
+        error: null,
+      });
+    } catch (error) {
+      log(`Could not build the offline downloads snapshot: ${error.message}`);
+      return {
+        downloads: [],
+        directory: null,
+        quality: 'original',
+        qualityPresets: listQualityPresets(),
+        error: `Offline downloads unavailable: ${error.message}`,
+      };
+    }
   }
 
   function broadcast() {
@@ -270,20 +329,25 @@ function createOfflineDownloadManager({
     entries = getEntries().filter((entry) => entry.itemId !== itemId);
   }
 
-  function deleteFile(path) {
+  async function deleteFile(path) {
     try {
-      if (fileExists(path)) {
+      if (!fileExists(path)) {
+        return;
+      }
+      if (isPluginLocalPath(path)) {
         file.delete(path);
+      } else {
+        await removeWithRm(path);
       }
     } catch (error) {
       log(`Could not delete ${path}: ${error.message}`);
     }
   }
 
-  function deleteEntryFiles(entry) {
-    deleteFile(entry.mediaPath);
+  async function deleteEntryFiles(entry) {
+    await deleteFile(entry.mediaPath);
     for (const subtitle of entry.subtitles || []) {
-      deleteFile(subtitle.path);
+      await deleteFile(subtitle.path);
     }
   }
 
@@ -355,7 +419,7 @@ function createOfflineDownloadManager({
         return existing;
       }
       // A failed download or one whose file went missing starts over.
-      deleteEntryFiles(existing);
+      await deleteEntryFiles(existing);
       removeEntry(item.Id);
     }
 
@@ -423,7 +487,7 @@ function createOfflineDownloadManager({
         log(`Downloaded subtitle ${language} (${stream.Index}) for ${entry.itemId}`);
       } catch (error) {
         log(`Subtitle ${language} (${stream.Index}) failed: ${error.message}`);
-        deleteFile(path);
+        await deleteFile(path);
       }
     }
     return downloaded;
@@ -541,14 +605,14 @@ function createOfflineDownloadManager({
     } catch (error) {
       if (entry.status === STATUS.CANCELLED) {
         log(`Offline download cancelled: ${entry.title}`);
-        deleteEntryFiles(entry);
+        await deleteEntryFiles(entry);
         removeEntry(entry.itemId);
       } else {
         entry.status = STATUS.FAILED;
         entry.error = error.message || String(error);
         entry.progress = 0;
         log(`Offline download failed: ${entry.title}: ${entry.error}`);
-        deleteEntryFiles(entry);
+        await deleteEntryFiles(entry);
         osd(`Download failed: ${entry.title}`);
       }
     } finally {
@@ -594,7 +658,7 @@ function createOfflineDownloadManager({
     if (entry.status === STATUS.QUEUED || entry.status === STATUS.DOWNLOADING) {
       return cancelDownload(itemId);
     }
-    deleteEntryFiles(entry);
+    await deleteEntryFiles(entry);
     removeEntry(itemId);
     log(`Removed offline download: ${entry.title}`);
     await persistAndBroadcast();
@@ -624,7 +688,7 @@ function createOfflineDownloadManager({
       return false;
     }
 
-    deleteEntryFiles(entry);
+    await deleteEntryFiles(entry);
     credentials[itemId] = token;
     entry.status = STATUS.QUEUED;
     entry.progress = 0;
@@ -737,36 +801,36 @@ function createOfflineDownloadManager({
    * Wire the offline messages of a webview (sidebar or standalone window).
    */
   function registerMessageHandlers(view) {
-    view.onMessage('get-offline-downloads', () => {
-      view.postMessage('offline-downloads', snapshot());
-    });
-    view.onMessage('offline-download', (data) => {
-      startDownload(data || {});
-    });
-    view.onMessage('offline-cancel', (data) => {
-      cancelDownload(data && data.itemId);
-    });
-    view.onMessage('offline-remove', (data) => {
-      removeDownload(data && data.itemId);
-    });
-    view.onMessage('offline-retry', (data) => {
-      retryDownload(data || {});
-    });
-    view.onMessage('play-offline', (data) => {
-      playDownload(data && data.itemId);
-    });
-    view.onMessage('offline-show-in-finder', (data) => {
-      showInFinder(data && data.itemId);
-    });
-    view.onMessage('offline-open-folder', () => {
-      showDownloadsFolder();
-    });
-    view.onMessage('offline-choose-folder', () => {
-      chooseDownloadFolder();
-    });
-    view.onMessage('offline-set-quality', (data) => {
-      setQuality(data && data.quality);
-    });
+    const handlers = {
+      'get-offline-downloads': () => view.postMessage('offline-downloads', snapshot()),
+      'offline-download': (data) => startDownload(data || {}),
+      'offline-cancel': (data) => cancelDownload(data && data.itemId),
+      'offline-remove': (data) => removeDownload(data && data.itemId),
+      'offline-retry': (data) => retryDownload(data || {}),
+      'play-offline': (data) => playDownload(data && data.itemId),
+      'offline-show-in-finder': (data) => showInFinder(data && data.itemId),
+      'offline-open-folder': () => showDownloadsFolder(),
+      'offline-choose-folder': () => chooseDownloadFolder(),
+      'offline-set-quality': (data) => setQuality(data && data.quality),
+    };
+    for (const [name, handler] of Object.entries(handlers)) {
+      view.onMessage(name, (data) => {
+        // An exception in IINA's message callback is only visible in its log;
+        // report it and keep the UI informed instead.
+        const report = (error) => {
+          log(`Message ${name} failed: ${error.message}`);
+          osd(`Offline downloads: ${error.message}`);
+        };
+        try {
+          const result = handler(data);
+          if (result && typeof result.catch === 'function') {
+            result.catch(report);
+          }
+        } catch (error) {
+          report(error);
+        }
+      });
+    }
   }
 
   return {
@@ -792,6 +856,10 @@ function createOfflineDownloadManager({
 
 module.exports = {
   createOfflineDownloadManager,
+  isPluginLocalPath,
+  toMessageData,
+  MKDIR_BINARY,
+  RM_BINARY,
   isTextSubtitle,
   buildDisplayTitle,
   pickContainer,

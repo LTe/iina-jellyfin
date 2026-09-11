@@ -5,6 +5,17 @@ window.createSidebarOfflineMethods = function createSidebarOfflineMethods(debugL
   const NOTICE_TIMEOUT_MS = 5000;
   const CONFIRM_TIMEOUT_MS = 4000;
   const TYPE_ICONS = { Movie: '🎬', Episode: '📺', Audio: '🎵' };
+  // Same list as src/lib/download-profile.js, so the picker works before (or
+  // without) an answer from the plugin; a snapshot may replace it.
+  const DEFAULT_QUALITY_PRESETS = [
+    { id: 'original', label: 'Original quality' },
+    { id: '8000', label: '8 Mb/s' },
+    { id: '4000', label: '4 Mb/s' },
+    { id: '2000', label: '2 Mb/s' },
+    { id: '1000', label: '1 Mb/s' },
+    { id: '500', label: '500 Kb/s' },
+    { id: '250', label: '250 Kb/s' },
+  ];
 
   function byId(id) {
     return document.getElementById(id);
@@ -23,7 +34,7 @@ window.createSidebarOfflineMethods = function createSidebarOfflineMethods(debugL
       this.offlineDownloads = [];
       this.offlineDirectory = null;
       this.offlineQuality = 'original';
-      this.offlineQualityPresets = [];
+      this.offlineQualityPresets = DEFAULT_QUALITY_PRESETS.slice();
       this.downloadsPanelReturn = null;
       this.downloadsNoticeTimer = null;
 
@@ -49,6 +60,7 @@ window.createSidebarOfflineMethods = function createSidebarOfflineMethods(debugL
         });
       }
 
+      this.renderQualityOptions();
       this.renderDownloadsList();
       this.requestOfflineDownloads();
     },
@@ -67,6 +79,12 @@ window.createSidebarOfflineMethods = function createSidebarOfflineMethods(debugL
     },
 
     handleOfflineDownloads(data) {
+      if (!data) {
+        // IINA delivers a reply it could not serialize as an empty message
+        this.showDownloadsNotice('The plugin sent an unreadable downloads state');
+      } else if (data.error) {
+        this.showDownloadsNotice(data.error);
+      }
       this.offlineDownloads = Array.isArray(data?.downloads) ? data.downloads : [];
       this.offlineDirectory = data?.directory || null;
       if (Array.isArray(data?.qualityPresets) && data.qualityPresets.length > 0) {
@@ -82,8 +100,8 @@ window.createSidebarOfflineMethods = function createSidebarOfflineMethods(debugL
     },
 
     /**
-     * Fill the quality picker with the presets the plugin knows and show the
-     * current choice. The picker stays empty until the plugin has answered.
+     * Fill the quality picker with the known presets and show the current
+     * choice.
      */
     renderQualityOptions() {
       const select = byId('downloadQualitySelect');
@@ -97,7 +115,6 @@ window.createSidebarOfflineMethods = function createSidebarOfflineMethods(debugL
         select.innerHTML = options;
       }
       select.value = this.offlineQuality;
-      select.disabled = this.offlineQualityPresets.length === 0;
     },
 
     /**

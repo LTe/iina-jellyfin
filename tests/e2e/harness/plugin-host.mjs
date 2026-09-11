@@ -127,6 +127,7 @@ export function createPluginHost({ page, dataDir, preferences = {} }) {
         return host.nextChosenFolder;
       },
       fileInPath(name) {
+        if (path.isAbsolute(name)) return fs.existsSync(name);
         const dirs = (process.env.PATH || '').split(path.delimiter);
         return dirs.some((dir) => fs.existsSync(path.join(dir, name)));
       },

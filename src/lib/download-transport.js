@@ -4,6 +4,12 @@
 const PROGRESS_PATTERN = /(\d{1,3}(?:\.\d+)?)%/g;
 const STDERR_TAIL_LENGTH = 300;
 
+// IINA's utils.exec runs a bare command name only when it ships inside the
+// IINA bundle; anything else has to be an absolute path (PATH is not searched).
+// Both binaries are part of every macOS installation.
+const CURL_BINARY = '/usr/bin/curl';
+const PKILL_BINARY = '/usr/bin/pkill';
+
 /**
  * Last percentage in a chunk of curl progress output, or null when the chunk
  * carries none.
@@ -38,7 +44,7 @@ function createDownloadTransport({ utils, http, log }) {
   function hasCurl() {
     if (curlAvailable === null) {
       try {
-        curlAvailable = Boolean(utils.fileInPath('curl'));
+        curlAvailable = Boolean(utils.fileInPath(CURL_BINARY));
       } catch (error) {
         log(`Could not probe for curl: ${error.message}`);
         curlAvailable = false;
@@ -62,7 +68,7 @@ function createDownloadTransport({ utils, http, log }) {
     ];
 
     let stderr = '';
-    const result = await utils.exec('curl', args, null, null, (chunk) => {
+    const result = await utils.exec(CURL_BINARY, args, null, null, (chunk) => {
       stderr = `${stderr}${chunk}`.slice(-STDERR_TAIL_LENGTH);
       const percent = parseCurlProgress(chunk);
       if (percent !== null && typeof onProgress === 'function') {
@@ -108,7 +114,10 @@ function createDownloadTransport({ utils, http, log }) {
     try {
       const resolvedDestination = utils.resolvePath(destination);
       const escapedDestination = resolvedDestination.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const result = await utils.exec('pkill', ['-f', `curl .*--output ${escapedDestination} `]);
+      const result = await utils.exec(PKILL_BINARY, [
+        '-f',
+        `curl .*--output ${escapedDestination} `,
+      ]);
       log(`pkill for ${resolvedDestination} exited with ${result ? result.status : 'unknown'}`);
       return Boolean(result) && result.status === 0;
     } catch (error) {
@@ -121,6 +130,8 @@ function createDownloadTransport({ utils, http, log }) {
 }
 
 module.exports = {
+  CURL_BINARY,
+  PKILL_BINARY,
   createDownloadTransport,
   parseCurlProgress,
 };
