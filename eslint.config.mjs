@@ -1,6 +1,8 @@
 import js from '@eslint/js';
 
 export default [
+  // The vendored Jellyfin Web client is upstream code
+  { ignores: ['src/ui/web/dist/**', '.cache/**', 'coverage/**', 'reports/**'] },
   js.configs.recommended,
   {
     // Main plugin files

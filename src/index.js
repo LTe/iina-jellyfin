@@ -163,6 +163,16 @@ function notifyViews(name, data) {
   }
 }
 
+// Which browser the sidebar and the standalone window show: the official
+// Jellyfin Web client with the IINA integration (src/ui/web) or the plugin's
+// own compact sidebar.
+const CLASSIC_UI_PATH = 'src/ui/sidebar/index.html';
+const JELLYFIN_WEB_UI_PATH = 'src/ui/web/dist/index.html';
+
+function browserUiPath() {
+  return preferences.get('browser_ui') === 'classic' ? CLASSIC_UI_PATH : JELLYFIN_WEB_UI_PATH;
+}
+
 // IINA runs this entry once per player window. The global entry outlives the
 // windows and runs the downloads for all of them; this window only reads the
 // manifest (for local playback) and relays the webview messages there. Without
@@ -302,12 +312,44 @@ function sendOfflineMessage(name, data) {
 }
 
 /**
+ * Jellyfin Web only knows the item id of what it wants downloaded; the
+ * download needs the item's metadata, which is fetched here with the
+ * credentials the page sent along.
+ */
+async function startOfflineDownloadById(data) {
+  if (!data || !data.itemId || !data.serverUrl || !data.accessToken) {
+    debugLog('offline-download-by-id without item id or credentials');
+    return false;
+  }
+  const item = await fetchItemMetadata(data.serverUrl, data.itemId, data.accessToken);
+  if (!item || !item.Id) {
+    debugLog(`Could not load item ${data.itemId} for an offline download`);
+    core.osd('Could not load the item to download');
+    return false;
+  }
+  sendOfflineMessage('offline-download', {
+    item,
+    serverUrl: data.serverUrl,
+    accessToken: data.accessToken,
+    serverId: data.serverId || null,
+    quality: data.quality,
+  });
+  return true;
+}
+
+/**
  * Forward every offline message a webview can send.
  */
 function relayOfflineMessages(view) {
   for (const name of OFFLINE_MESSAGES) {
     view.onMessage(name, (data) => sendOfflineMessage(name, data));
   }
+  view.onMessage('offline-download-by-id', (data) => {
+    startOfflineDownloadById(data).catch((error) => {
+      debugLog(`offline-download-by-id failed: ${error.message}`);
+      core.osd('Could not start the offline download');
+    });
+  });
 }
 
 /**
@@ -463,7 +505,7 @@ function openJellyfinStandaloneWindow(sessionData) {
     debugLog('Creating standalone Jellyfin browser window');
 
     // Load the same sidebar HTML in standalone window
-    standaloneWindow.loadFile('src/ui/sidebar/index.html');
+    standaloneWindow.loadFile(browserUiPath());
 
     // Set window properties. setFrame takes four numbers (width, height, x, y)
     // and setProperty a single object; anything else is silently ignored.
@@ -850,7 +892,7 @@ event.on('iina.application-will-terminate', () => {
 
 // Initialize sidebar when window is loaded
 event.on('iina.window-loaded', () => {
-  sidebar.loadFile('src/ui/sidebar/index.html');
+  sidebar.loadFile(browserUiPath());
 
   // Set up message handler for sidebar playback requests
   sidebar.onMessage('play-media', handlePlayMedia);

@@ -177,6 +177,25 @@
       </p>
     </div>
 
+    <div class="section-header">Jellyfin Browser</div>
+
+    <div class="pref-section">
+      <p>Browser interface:</p>
+      <label
+        ><input type="radio" name="browser_ui" value="jellyfin-web" /> Jellyfin Web (the official
+        client, with playback and offline downloads handled by IINA)</label
+      ><br />
+      <label
+        ><input type="radio" name="browser_ui" value="classic" /> Compact sidebar (the plugin's own
+        browser)</label
+      >
+      <p class="small secondary pref-help">
+        Takes effect the next time a player window opens. Jellyfin Web keeps its own sign-in; the
+        plugin learns the server and credentials from it for offline downloads, autoplay and
+        playback reporting.
+      </p>
+    </div>
+
     <div class="section-header">Offline Downloads</div>
 
     <div class="pref-section">

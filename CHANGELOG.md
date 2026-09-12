@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0](https://github.com/LTe/iina-jellyfin/compare/v0.8.1...v0.9.0) (2026-09-12)
+
+### 🚀 Features
+
+- The browser is now the official Jellyfin Web client (12.0), unmodified: the plugin vendors its release build and loads a small IINA layer in front of it (`window.NativeShell` and a Jellyfin Web plugin). Playback goes to IINA, the item pages get an _Offline_ button, the user menu's _Downloads_ entry opens the offline downloads panel, and the plugin learns the server and credentials from the client's sign-in for autoplay, playback reporting and downloads
+- The compact sidebar is still available through the _Browser interface_ preference
+
+### 🧪 Tests
+
+- Unit tests for the IINA layer (jsdom, 100% coverage) and Playwright scenarios running the real Jellyfin Web build against the mock server: saved credentials, sign-in, play in IINA, download from the item page and the Downloads panel
+
 ## [0.8.1](https://github.com/LTe/iina-jellyfin/compare/v0.8.0...v0.8.1) (2026-09-11)
 
 ### 🚀 Features

@@ -132,3 +132,7 @@ reports/
 tests/e2e/.artifacts/
 playwright-report/
 test-results/
+
+# Vendored Jellyfin Web client (run `pnpm ui:vendor`)
+src/ui/web/dist/
+.cache/

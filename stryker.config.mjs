@@ -21,5 +21,12 @@ export default {
   cleanTempDir: 'always',
   timeoutMS: 15000,
   timeoutFactor: 2,
-  ignorePatterns: ['coverage', 'reports', 'tests/e2e/.artifacts', 'node_modules/.cache'],
+  ignorePatterns: [
+    'coverage',
+    'reports',
+    'tests/e2e/.artifacts',
+    'node_modules/.cache',
+    'src/ui/web/dist',
+    '.cache',
+  ],
 };

@@ -40,6 +40,17 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Setup Node.js
+        if: steps.version.outputs.exists == 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      # The Jellyfin Web client is not committed; the packed plugin ships it
+      - name: Vendor the Jellyfin Web client
+        if: steps.version.outputs.exists == 'false'
+        run: node scripts/vendor-jellyfin-web.mjs
+
       - name: Install IINA
         if: steps.version.outputs.exists == 'false'
         run: brew install --cask iina

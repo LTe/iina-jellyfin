@@ -1,6 +1,6 @@
 # IINA Jellyfin Plugin
 
-An comprehensive IINA plugin that provides Jellyfin media server integration, including automatic subtitle downloading and a full media browser sidebar.
+A comprehensive IINA plugin that provides Jellyfin media server integration, including automatic subtitle downloading, the official Jellyfin Web client as the media browser, and offline downloads.
 
 ## Features
 
@@ -12,7 +12,15 @@ An comprehensive IINA plugin that provides Jellyfin media server integration, in
 - **External subtitle support**: Handles both embedded and external subtitle files
 - **Manual download option**: Menu option to manually trigger subtitle download
 
-### Jellyfin Browser Sidebar
+### Jellyfin Web Browser
+
+- **The official client**: The browser is Jellyfin Web 12.0 as released by the Jellyfin project, loaded in IINA's sidebar or in a standalone window
+- **Playback in IINA**: Every play request of the web client (movies, episodes, albums, playlists, shuffle) opens in IINA instead of the page's own player
+- **Offline downloads built in**: Item pages get an _Offline_ button, the user menu's _Downloads_ entry opens the offline downloads panel, and the web client's own download action stores an offline copy
+- **One sign-in**: The plugin learns the server and credentials from the web client's sign-in and uses them for autoplay, playback reporting and downloads
+- **Compact sidebar**: The plugin's own lightweight browser is still available through the _Browser interface_ preference
+
+### Compact Sidebar (optional)
 
 - **Multi-server support**: Save multiple Jellyfin servers and switch between them effortlessly
 - **Multiple user support**: Store different user accounts on the same server as separate entries
@@ -69,9 +77,13 @@ The plugin automatically detects and downloads subtitles when you open Jellyfin 
 3. Subtitles will be downloaded automatically based on your language preferences
 4. Manually download subtitles anytime using: Menu → "Download Jellyfin Subtitles" (or `Cmd+Shift+D`)
 
-### Using the Jellyfin Browser Sidebar
+### Using the Jellyfin Browser
 
-Open the browser sidebar using: View menu → "Show Jellyfin Browser" or press `Cmd+Shift+J`
+Open the browser using: View menu → "Show Jellyfin Browser" or press `Cmd+Shift+J`
+
+By default this is the official Jellyfin Web client. Sign in as you would in a web browser (the server address, then your user and password or Quick Connect); the plugin picks the session up from there. Play buttons open IINA, the _Offline_ button on an item page downloads the item (or plays the downloaded copy), and _Downloads_ in the user menu shows the offline downloads panel with the quality picker, the download folder and every download's state.
+
+The rest of this section describes the compact sidebar, which you can switch to with the _Browser interface_ preference.
 
 #### First Time Setup
 
@@ -214,6 +226,10 @@ Access plugin settings through IINA → Preferences → Plugins → Jellyfin:
 - **Open media in new IINA window**: Play media from browser in separate windows
 - **Enable autoplay**: Automatically queue the next episode when the current episode finishes, supporting cross-season playback
 
+### Jellyfin Browser
+
+- **Browser interface**: The official Jellyfin Web client (default) or the plugin's compact sidebar. Takes effect the next time a player window opens.
+
 ### Offline Downloads
 
 - **Download folder**: Where offline downloads and their subtitles are stored. Leave empty for the plugin's data folder, or enter a path such as `~/Movies/Jellyfin Offline`.
@@ -241,8 +257,15 @@ The plugin adds these menu items to IINA:
 - `pnpm test:coverage`: Unit tests with coverage; the files listed in `vitest.config.mjs` must stay at 100%
 - `pnpm test:mutation`: Mutation tests (Stryker) over the same files; fails below the configured score
 - `pnpm test:e2e`: End-to-end tests (Playwright); run `pnpm test:e2e:install` once to get Chromium
+- `pnpm ui:vendor`: Download the Jellyfin Web release build into `src/ui/web/dist` (required once after cloning, and for the e2e tests)
 - `/Applications/IINA.app/Contents/MacOS/iina-plugin link .`: Link plugin to IINA for testing
 - `/Applications/IINA.app/Contents/MacOS/iina-plugin unlink .`: Unlink plugin from IINA
+
+### The Jellyfin Web client
+
+`src/ui/web/dist` is not committed: `pnpm ui:vendor` downloads the release build of Jellyfin Web (the Debian package of the version pinned in `scripts/vendor-jellyfin-web.mjs`) and copies it there, adding two tags to its `index.html` that load `src/ui/web/iina/iina.css` and `src/ui/web/iina/iina-shell.js`. That is the only change to the upstream files, so updating Jellyfin Web means bumping `JELLYFIN_WEB_VERSION` and running `pnpm ui:vendor --force`. The release workflow vendors the client before packing the plugin.
+
+`iina-shell.js` uses the hooks Jellyfin Web offers to host applications: `window.NativeShell` (identity, supported features, file downloads, the user menu's _Downloads_ entry) and a Jellyfin Web plugin (`IinaPlayerPlugin`) that receives the playback manager and routes play requests to IINA. Everything else talks to the plugin entry through the same webview messages the compact sidebar uses.
 
 ### Testing
 
@@ -250,7 +273,7 @@ Three layers of tests run in CI (`.github/workflows/tests.yml`):
 
 - **Unit tests** (`tests/unit`, Vitest): the plugin's main entry runs against a fake `iina` object, and the sidebar scripts run in jsdom against the real `index.html`. Coverage of the files touched by the offline downloads feature is enforced at 100% for statements, branches, functions and lines.
 - **Mutation tests** (`stryker.config.mjs`): Stryker mutates the same files and re-runs the unit tests; a mutant that survives points at behaviour no test checks. Mutants inside debug log calls are ignored by a small local plugin (`tests/mutation/ignore-debug-logging.mjs`) since log wording is not behaviour. The HTML report lands in `reports/mutation/`.
-- **End-to-end tests** (`tests/e2e`, Playwright): the real sidebar page runs in Chromium and talks to the real plugin entry, which runs in the test process on a Node implementation of the IINA API (files on disk, real `curl`, `fetch`). A mock Jellyfin server serves the API and media. The scenarios download a movie and an episode, verify the bytes and subtitles on disk, play them with subtitles attached, cancel and retry downloads, and finally take the server offline and check that browsing, playing and removing downloads still work.
+- **End-to-end tests** (`tests/e2e`, Playwright): the real sidebar page runs in Chromium and talks to the real plugin entry, which runs in the test process on a Node implementation of the IINA API (files on disk, real `curl`, `fetch`). A mock Jellyfin server serves the API and media. The scenarios download a movie and an episode, verify the bytes and subtitles on disk, play them with subtitles attached, cancel and retry downloads, and finally take the server offline and check that browsing, playing and removing downloads still work. A second set runs the vendored Jellyfin Web build: saved credentials and sign-in, playing in IINA, downloading from the item page and the Downloads panel.
 
 ## Contributing
 

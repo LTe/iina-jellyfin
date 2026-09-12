@@ -3,11 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as base, expect } from '@playwright/test';
-import { createMockJellyfin, TOKEN } from './mock-jellyfin.mjs';
+import { createMockJellyfin, TOKEN, USER } from './mock-jellyfin.mjs';
 import { createPluginHost, PAGE_BRIDGE_SCRIPT } from './plugin-host.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const uiDir = path.resolve(here, '../../../src/ui/sidebar');
+const webDir = path.resolve(here, '../../../src/ui/web/dist');
+const iinaDir = path.resolve(here, '../../../src/ui/web/iina');
 
 /**
  * Fixtures for the offline download scenarios:
@@ -18,7 +20,7 @@ const uiDir = path.resolve(here, '../../../src/ui/sidebar');
  */
 export const test = base.extend({
   jellyfin: async ({}, use) => {
-    const server = createMockJellyfin({ uiDir });
+    const server = createMockJellyfin({ uiDir, webDir, iinaDir });
     await server.start();
     await use(server);
     await server.stop();
@@ -40,7 +42,12 @@ export const test = base.extend({
        * With `storedServer: true` the mock server is pre-configured, so the
        * sidebar auto-connects (or fails to, when the server is offline).
        */
-      async open({ storedServer = true, preferences = {} } = {}) {
+      /**
+       * `ui: 'web'` opens the vendored Jellyfin Web client instead of the
+       * compact sidebar; `signedIn: true` seeds its saved credentials so it
+       * connects straight away, the way a returning user's does.
+       */
+      async open({ storedServer = true, preferences = {}, ui = 'classic', signedIn = true } = {}) {
         if (host) host.markPageGone();
         const prefs = { ...preferences };
         if (storedServer) {
@@ -63,7 +70,31 @@ export const test = base.extend({
           bridged = true;
         }
         await host.boot();
-        await page.goto(`${jellyfin.baseUrl}/ui/index.html`);
+        if (ui === 'web') {
+          const credentials = signedIn
+            ? {
+                Servers: [
+                  {
+                    Id: 'server-1',
+                    Name: 'Mock Jellyfin',
+                    ManualAddress: jellyfin.baseUrl,
+                    LastConnectionMode: 2,
+                    AccessToken: TOKEN,
+                    UserId: USER.Id,
+                    DateLastAccessed: Date.now(),
+                  },
+                ],
+              }
+            : { Servers: [] };
+          await page.addInitScript((value) => {
+            if (!window.localStorage.getItem('jellyfin_credentials')) {
+              window.localStorage.setItem('jellyfin_credentials', JSON.stringify(value));
+            }
+          }, credentials);
+          await page.goto(`${jellyfin.baseUrl}/web/index.html`);
+        } else {
+          await page.goto(`${jellyfin.baseUrl}/ui/index.html`);
+        }
         host.markPageReady();
         return host;
       },

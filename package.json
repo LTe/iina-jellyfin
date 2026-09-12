@@ -23,7 +23,8 @@
     "test:coverage": "vitest run --coverage",
     "test:mutation": "stryker run",
     "test:e2e": "playwright test",
-    "test:e2e:install": "playwright install --with-deps chromium"
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "ui:vendor": "node scripts/vendor-jellyfin-web.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

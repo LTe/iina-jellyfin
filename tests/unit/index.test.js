@@ -180,7 +180,8 @@ describe('plugin main entry', () => {
       fake.menuItem('Show Jellyfin Browser').callback();
 
       const win = fake.iina.standaloneWindow;
-      expect(win.loadFile).toHaveBeenCalledWith('src/ui/sidebar/index.html');
+      // The official Jellyfin Web client is the default browser interface
+      expect(win.loadFile).toHaveBeenCalledWith('src/ui/web/dist/index.html');
       expect(win.setFrame).toHaveBeenCalledWith(400, 600, 100, 100);
       expect(win.setProperty).toHaveBeenCalledWith({ title: 'Jellyfin Browser', resizable: true });
       expect(win.open).toHaveBeenCalledTimes(1);
@@ -430,7 +431,7 @@ describe('plugin main entry', () => {
         },
       });
       const sidebar = fake.iina.sidebar;
-      expect(sidebar.loadFile).toHaveBeenCalledWith('src/ui/sidebar/index.html');
+      expect(sidebar.loadFile).toHaveBeenCalledWith('src/ui/web/dist/index.html');
 
       vi.advanceTimersByTime(500);
       expect(sidebar.postMessage).toHaveBeenCalledWith(
@@ -445,6 +446,11 @@ describe('plugin main entry', () => {
         'session-available',
         expect.objectContaining({ serverId: 'srv-1' })
       );
+    });
+
+    it('loads the compact sidebar when the preference says so', async () => {
+      const fake = await loadWithSidebar({ preferences: { browser_ui: 'classic' } });
+      expect(fake.iina.sidebar.loadFile).toHaveBeenCalledWith('src/ui/sidebar/index.html');
     });
 
     it('skips server messages when nothing is stored', async () => {
@@ -720,6 +726,101 @@ describe('plugin main entry', () => {
       expect(logged(fake)).toContain(
         'DEBUG: Could not post offline-downloads to a view: view gone'
       );
+    });
+  });
+
+  describe('downloads requested by item id (Jellyfin Web)', () => {
+    const REQUEST = {
+      itemId: ITEM,
+      serverUrl: SERVER,
+      accessToken: 'tok',
+      serverId: 'server-1',
+      quality: '4000',
+    };
+
+    async function loadWithSidebar(options) {
+      const fake = await loadPlugin(options);
+      fake.emit('iina.window-loaded');
+      return fake;
+    }
+
+    it('fetches the item and starts the download with it', async () => {
+      const fake = await loadWithSidebar();
+      const item = { Id: ITEM, Type: 'Movie', Name: 'Film' };
+      routeHttp(fake.iina, [[`/Items/${ITEM}?ApiKey=tok`, item]]);
+
+      fake.iina.sidebar.emit('offline-download-by-id', REQUEST);
+      await flushPromises();
+
+      expect(fake.iina.global.postMessage).toHaveBeenCalledWith('offline-download', {
+        item,
+        serverUrl: SERVER,
+        accessToken: 'tok',
+        serverId: 'server-1',
+        quality: '4000',
+      });
+      expect(fake.iina.core.osd).not.toHaveBeenCalled();
+    });
+
+    it('defaults the server id to null', async () => {
+      const fake = await loadWithSidebar();
+      routeHttp(fake.iina, [[`/Items/${ITEM}`, { Id: ITEM, Type: 'Movie', Name: 'Film' }]]);
+
+      fake.iina.sidebar.emit('offline-download-by-id', { ...REQUEST, serverId: undefined });
+      await flushPromises();
+
+      expect(fake.iina.global.postMessage).toHaveBeenCalledWith(
+        'offline-download',
+        expect.objectContaining({ serverId: null, quality: '4000' })
+      );
+    });
+
+    it('ignores requests without an item id or credentials', async () => {
+      const fake = await loadWithSidebar();
+      const sidebar = fake.iina.sidebar;
+
+      sidebar.emit('offline-download-by-id', null);
+      sidebar.emit('offline-download-by-id', { ...REQUEST, itemId: '' });
+      sidebar.emit('offline-download-by-id', { ...REQUEST, serverUrl: '' });
+      sidebar.emit('offline-download-by-id', { ...REQUEST, accessToken: '' });
+      await flushPromises();
+
+      expect(fake.iina.http.get).not.toHaveBeenCalled();
+      expect(fake.iina.global.postMessage).not.toHaveBeenCalledWith(
+        'offline-download',
+        expect.anything()
+      );
+      expect(
+        logged(fake).filter(
+          (line) => line === 'DEBUG: offline-download-by-id without item id or credentials'
+        )
+      ).toHaveLength(4);
+    });
+
+    it('reports an item that cannot be loaded', async () => {
+      const fake = await loadWithSidebar();
+      routeHttp(fake.iina, [[`/Items/${ITEM}`, { Name: 'no id' }]]);
+
+      fake.iina.sidebar.emit('offline-download-by-id', REQUEST);
+      await flushPromises();
+
+      expect(fake.iina.core.osd).toHaveBeenCalledWith('Could not load the item to download');
+      expect(logged(fake)).toContain(`DEBUG: Could not load item ${ITEM} for an offline download`);
+      expect(fake.iina.global.postMessage).not.toHaveBeenCalledWith(
+        'offline-download',
+        expect.anything()
+      );
+    });
+
+    it('reports a failed metadata request', async () => {
+      const fake = await loadWithSidebar();
+      fake.iina.http.get.mockRejectedValue(new Error('offline'));
+
+      fake.iina.sidebar.emit('offline-download-by-id', REQUEST);
+      await flushPromises();
+
+      expect(fake.iina.core.osd).toHaveBeenCalledWith('Could not start the offline download');
+      expect(logged(fake)).toContain('DEBUG: offline-download-by-id failed: offline');
     });
   });
 

@@ -1,0 +1,145 @@
+/* IINA integration for Jellyfin Web: offline button and Downloads panel */
+
+.btnIinaOffline .iina-offline-label {
+  margin-left: 0.35em;
+  font-size: 0.9em;
+}
+
+.btnIinaOffline[data-offline-state='completed'] .detailButton-icon {
+  color: #4ade80;
+}
+
+.btnIinaOffline[data-offline-state='failed'] .detailButton-icon,
+.btnIinaOffline[data-offline-state='missing'] .detailButton-icon {
+  color: #fca5a5;
+}
+
+.iina-downloads {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1em;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.iina-downloads.hide {
+  display: none;
+}
+
+.iina-downloads-dialog {
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  border-radius: 8px;
+  background: #202020;
+  color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  padding: 1em 1.25em 1.25em;
+  font-size: 0.95em;
+}
+
+.iina-downloads-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.iina-downloads-header h2 {
+  margin: 0;
+  font-size: 1.2em;
+}
+
+.iina-downloads button {
+  border: 0;
+  border-radius: 4px;
+  padding: 0.4em 0.8em;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.iina-downloads button:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.iina-downloads-close {
+  font-size: 1em;
+}
+
+.iina-downloads-notice {
+  margin: 0.75em 0 0;
+  padding: 0.5em 0.75em;
+  border-radius: 4px;
+  background: rgba(0, 164, 220, 0.25);
+}
+
+.iina-downloads-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  align-items: center;
+  margin: 0.75em 0 0.25em;
+}
+
+.iina-downloads-toolbar select {
+  margin-left: 0.4em;
+  padding: 0.3em;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #2a2a2a;
+  color: inherit;
+}
+
+.iina-downloads-directory {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin-bottom: 0.75em;
+  word-break: break-all;
+}
+
+.iina-downloads-item {
+  padding: 0.6em 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.iina-downloads-title {
+  font-weight: 600;
+}
+
+.iina-downloads-status {
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+.iina-downloads-item.status-failed .iina-downloads-status {
+  color: #fca5a5;
+  opacity: 1;
+}
+
+.iina-downloads-progress {
+  height: 4px;
+  margin: 0.4em 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.iina-downloads-progress div {
+  height: 100%;
+  background: #00a4dc;
+}
+
+.iina-downloads-actions {
+  display: flex;
+  gap: 0.4em;
+  margin-top: 0.4em;
+}
+
+.iina-downloads-empty {
+  padding: 1em 0;
+  opacity: 0.7;
+}

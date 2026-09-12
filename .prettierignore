@@ -11,3 +11,5 @@ reports/
 tests/e2e/.artifacts/
 playwright-report/
 test-results/
+src/ui/web/dist/
+.cache/

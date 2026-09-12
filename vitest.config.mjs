@@ -15,6 +15,7 @@ export const coveredFiles = [
   'src/ui/sidebar/lib/debug-log.js',
   'src/ui/sidebar/lib/media-methods.js',
   'src/ui/sidebar/lib/offline-methods.js',
+  'src/ui/web/iina/iina-shell.js',
 ];
 
 export default defineConfig({
