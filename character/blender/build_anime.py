@@ -649,6 +649,130 @@ def relax(ob, iterations=6, lam=0.8):
 
 
 # ---------------------------------------------------------------------------
+# Animation: smooth, seamlessly looping clips
+# ---------------------------------------------------------------------------
+def smooth01(x):
+    """0..1 periodic bump with continuous derivatives (no kinks anywhere)."""
+    return 0.5 - 0.5 * math.cos(x)
+
+
+def build_clips(rig, fps=30):
+    """Idle (3 s) and Walk (1.1 s). Every frame is keyed with LINEAR interpolation and the last
+    key equals the first, so playback has constant speed through the loop point (Bezier keys
+    ease to a stop at each end, which is what makes a loop stutter)."""
+    prefs = bpy.context.preferences.edit
+    prefs.keyframe_new_interpolation_type = "LINEAR"
+    sc = bpy.context.scene
+    sc.render.fps = fps
+    rig.animation_data_create()
+
+    def clip(name, frames, pose_fn):
+        act = bpy.data.actions.new(name)
+        act.use_fake_user = True
+        rig.animation_data.action = act
+        for f in range(frames + 1):
+            ph = 2 * math.pi * f / frames
+            rots, loc = pose_fn(ph)
+            for pb in rig.pose.bones:
+                pb.rotation_mode = "XYZ"
+                pb.rotation_euler = rots.get(pb.name, (0, 0, 0))
+                pb.keyframe_insert("rotation_euler", frame=f + 1)
+            hp = rig.pose.bones["hips"]
+            hp.location = loc
+            hp.keyframe_insert("location", frame=f + 1)
+        return act
+
+    def idle(ph):
+        s1, s2 = math.sin(ph), math.sin(ph * 2 + 0.7)
+        r = {
+            "spine": (0.010 * s1, 0.0, 0.006 * math.sin(ph + 1.0)),
+            "chest": (0.022 * s1, 0.0, 0.0),                       # breathing
+            "neck": (-0.012 * s1, 0.020 * math.sin(ph + 0.5), 0.0),
+            "head": (0.010 * s2, -0.030 * math.sin(ph + 0.9), 0.012 * math.sin(ph + 2.0)),
+        }
+        for side, sg in (("L", 1), ("R", -1)):
+            r[f"upper_arm.{side}"] = (0.025 * math.sin(ph + 0.4), 0.0, 0.0)
+            r[f"forearm.{side}"] = (0.08 + 0.02 * math.sin(ph + 0.8), 0.0, 0.0)
+            r[f"hand.{side}"] = (0.04 * math.sin(ph + 1.2), 0.0, 0.0)
+        # weight shift: hips sway a little side to side, legs compensate
+        sway = 0.006 * math.sin(ph)
+        return r, (sway, 0.003 * math.sin(2 * ph), 0.0)
+
+    def walk(ph):
+        r = {}
+        for side, sg, off in (("L", 1, 0.0), ("R", -1, math.pi)):
+            p = ph + off
+            sw = math.sin(p)                                     # +1 leg forward
+            r[f"thigh.{side}"] = (-0.44 * sw, 0.0, 0.0)
+            # knee bends while the leg swings forward (max as the legs pass), straight at heel strike
+            swing = ((1 + math.cos(p - 0.5)) / 2) ** 3
+            r[f"shin.{side}"] = (0.06 + 0.70 * swing, 0.0, 0.0)
+            push = ((1 - math.sin(p)) / 2) ** 4                 # push-off when the leg is behind
+            r[f"foot.{side}"] = (0.10 * sw - 0.30 * swing + 0.20 * push, 0.0, 0.0)
+            r[f"toe.{side}"] = (-0.35 * push, 0.0, 0.0)
+            r[f"upper_arm.{side}"] = (0.30 * sw, 0.0, 0.0)       # arms swing against the legs
+            r[f"forearm.{side}"] = (0.22 + 0.12 * smooth01(p), 0.0, 0.0)
+        r["spine"] = (0.04, 0.05 * math.sin(ph), 0.0)
+        r["chest"] = (0.0, -0.09 * math.sin(ph), 0.015 * math.sin(2 * ph))
+        r["neck"] = (0.0, 0.04 * math.sin(ph), 0.0)
+        r["head"] = (-0.02, 0.03 * math.sin(ph), 0.0)
+        # two bobs per cycle, lowest when the feet pass each other
+        return r, (0.0, -0.012 + 0.012 * math.cos(2 * ph), 0.0)
+
+    acts = [clip("Idle", 90, idle), clip("Walk", 33, walk)]
+    for act in acts:
+        for fc in iter_fcurves(act):
+            for kp in fc.keyframe_points:
+                kp.interpolation = "LINEAR"
+    for act in acts:
+        tr = rig.animation_data.nla_tracks.new()
+        tr.name = act.name
+        tr.strips.new(act.name, 1, act)
+        tr.mute = True
+    rig.animation_data.action = None
+    for pb in rig.pose.bones:
+        pb.rotation_euler = (0, 0, 0)
+        pb.location = (0, 0, 0)
+
+
+def fix_quaternion_signs(glb_path):
+    """Make every rotation track sign-continuous (q and -q are the same rotation, but engines
+    that blend quaternions linearly twitch where the sign flips between keys)."""
+    import json
+    import struct
+    data = bytearray(open(glb_path, "rb").read())
+    jlen = struct.unpack_from("<I", data, 12)[0]
+    doc = json.loads(bytes(data[20:20 + jlen]))
+    bin0 = 20 + jlen + 8
+    fixed = 0
+    for an in doc.get("animations", []):
+        for ch in an["channels"]:
+            if ch["target"]["path"] != "rotation":
+                continue
+            a = doc["accessors"][an["samplers"][ch["sampler"]]["output"]]
+            bv = doc["bufferViews"][a["bufferView"]]
+            off = bin0 + bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+            q = np.frombuffer(bytes(data[off:off + a["count"] * 16]), dtype=np.float32).reshape(-1, 4).copy()
+            for k in range(1, len(q)):
+                if np.dot(q[k], q[k - 1]) < 0:
+                    q[k] = -q[k]
+                    fixed += 1
+            data[off:off + a["count"] * 16] = q.astype(np.float32).tobytes()
+    open(glb_path, "wb").write(bytes(data))
+    return fixed
+
+
+def iter_fcurves(act):
+    if hasattr(act, "fcurves") and len(getattr(act, "fcurves", [])):
+        yield from act.fcurves
+        return
+    for layer in getattr(act, "layers", []):
+        for strip in layer.strips:
+            for bag in getattr(strip, "channelbags", []):
+                yield from bag.fcurves
+
+
+# ---------------------------------------------------------------------------
 # Render
 # ---------------------------------------------------------------------------
 def setup_eevee(w=520, h=1080):
@@ -788,17 +912,19 @@ def main():
     sections = BC.split_body(body, face_sec)
     sections.update(under)
     bpy.data.objects.remove(body)
-    BC.build_animations(rig)
+    build_clips(rig)
     BC.show_outfit(items, sections, BC.DEFAULT_OUTFIT)
 
     # export (plain PBR materials)
     base = [rig, head, hair] + ears + list(sections.values())
     glb = os.path.join(OUT_EXPORT, "character.glb")
     BC.export_selection(glb, base + list(items.values()), True)
+    print("quaternion sign fixes:", fix_quaternion_signs(glb))
     BC.glb_to_embedded_gltf(glb, os.path.join(OUT_EXPORT, "character.gltf"))
     parts = os.path.join(OUT_EXPORT, "parts")
     os.makedirs(parts, exist_ok=True)
     BC.export_selection(os.path.join(parts, "base_body.glb"), [rig, head] + ears + list(sections.values()), True)
+    fix_quaternion_signs(os.path.join(parts, "base_body.glb"))
     BC.export_selection(os.path.join(parts, "hair_bun.glb"), [rig, hair], False)
     for name, ob in items.items():
         BC.export_selection(os.path.join(parts, name.replace("Outfit_", "").lower() + ".glb"), [rig, ob], False)
@@ -851,6 +977,20 @@ def main():
     hair.hide_render = False
     sheet(wp, os.path.join(OUT_RENDER, "anime_wardrobe.png"))
     BC.show_outfit(items, sections, BC.DEFAULT_OUTFIT)
+    # motion check: the walk cycle at six phases, side view
+    rig.data.pose_position = "POSE"
+    mp = []
+    for f in (1, 6, 12, 17, 23, 28):
+        BC.set_action(rig, "Walk", f)
+        mp.append(shoot(cam, -90, os.path.join(OUT_RENDER, f"anime_walk_{f:02d}.png"), res=(360, 1000)))
+    sheet(mp, os.path.join(OUT_RENDER, "anime_walk.png"))
+    mp = []
+    for f in (1, 12, 17, 28):
+        BC.set_action(rig, "Walk", f)
+        mp.append(shoot(cam, -30, os.path.join(OUT_RENDER, f"anime_walkq_{f:02d}.png"), res=(420, 1000)))
+    sheet(mp, os.path.join(OUT_RENDER, "anime_walk_threequarter.png"))
+    BC.set_action(rig, None, 1)
+    rig.data.pose_position = "REST"
     print("RENDERED")
 
 

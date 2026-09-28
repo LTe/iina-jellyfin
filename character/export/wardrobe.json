@@ -54,6 +54,7 @@
       "label": "Navy sweater",
       "hides": [
         "torso",
+        "upperarms",
         "underwear_top"
       ],
       "file": "parts/sweater.glb"

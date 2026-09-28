@@ -199,6 +199,12 @@
   </section>
 
   <section>
+    <h2>Walk cycle</h2>
+    <p class="caption">Four frames of the 1.1-second Walk clip. Both clips are keyed on every frame with linear interpolation and loop seamlessly, so playback runs at a steady speed with no hitch at the loop point.</p>
+    <div class="shot"><img src="img/walk.jpg" alt="Four frames of the walk cycle from a three-quarter view" loading="lazy"></div>
+  </section>
+
+  <section>
     <h2>Separate hair and clothes</h2>
     <p class="caption">From left: base body, sweater with joggers, tee with shorts, tee with joggers, and the same without the hair. Every item is its own mesh on the shared skeleton.</p>
     <div class="shot"><img src="img/wardrobe.jpg" alt="The character in several outfits, and without hair" loading="lazy"></div>
@@ -435,6 +441,9 @@ load().then(gltf => {
   mixer = new THREE.AnimationMixer(model);
   const animsEl = document.getElementById("anims");
   for (const clip of gltf.animations) {
+    // start every clip at t=0 so the loop has no held frame
+    const t0 = Math.min(...clip.tracks.map(t => t.times[0]));
+    if (t0 > 0) { clip.tracks.forEach(t => t.shift(-t0)); clip.resetDuration(); }
     actions[clip.name] = mixer.clipAction(clip);
     const b = document.createElement("button");
     b.className = "chip"; b.dataset.anim = clip.name; b.id = "a-" + clip.name;

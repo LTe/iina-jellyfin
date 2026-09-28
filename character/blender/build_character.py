@@ -897,7 +897,7 @@ def bind_garment(ob, rig, sampler):
             g.add([v.index], w, "REPLACE")
 
 
-def cut_faces(ob, kill_fn, snap_fn=None):
+def cut_faces(ob, kill_fn, snap_fn=None, relax=8):
     bm = bmesh.new()
     bm.from_mesh(ob.data)
     kill = [f for f in bm.faces if kill_fn(f.calc_center_median())]
@@ -905,6 +905,19 @@ def cut_faces(ob, kill_fn, snap_fn=None):
     if snap_fn:
         for v in bm.verts:
             if v.is_boundary:
+                snap_fn(v)
+        # relax each cut edge along itself (removes the stair-step left by deleting faces),
+        # then snap again so it lies on its cut line
+        bnd = [v for v in bm.verts if v.is_boundary]
+        for _ in range(relax):
+            new = {}
+            for v in bnd:
+                nb = [e.other_vert(v) for e in v.link_edges if e.is_boundary]
+                if len(nb) == 2:
+                    new[v] = (v.co * 2 + nb[0].co + nb[1].co) / 4
+            for v, co in new.items():
+                v.co = co
+            for v in bnd:
                 snap_fn(v)
     bm.to_mesh(ob.data)
     bm.free()
@@ -936,7 +949,7 @@ def neckline_z(co, depth=0.050, top=1.355):
 
 
 def build_top(name, mat, rig, body, face_sec, ws, *, ease=0.95, hem=0.928, sleeve_cut=None,
-              sleeve_r=(0.052, 0.046, 0.052, 0.042), neck_depth=0.030, neck_r=0.100):
+              sleeve_r=(0.052, 0.046, 0.052, 0.042), neck_depth=0.032, neck_r=0.130):
     """Sweater-like top. sleeve_cut: z of the sleeve end (None = to the cuff)."""
     # one skin-modifier graph: torso with both sleeves branching off the upper chest,
     # so the shoulder joins are seamless; neckline, hem and cuffs are cut afterwards
@@ -1559,7 +1572,7 @@ def glb_to_embedded_gltf(glb_path, out_path):
 # --------------------------------------------------------------------------
 WARDROBE = [
     # object name, slot, label, body sections hidden while worn
-    ("Outfit_Sweater", "top", "Navy sweater", ["torso", "underwear_top"]),
+    ("Outfit_Sweater", "top", "Navy sweater", ["torso", "upperarms", "underwear_top"]),
     ("Outfit_TShirt", "top", "Lavender tee", ["torso", "underwear_top"]),
     ("Outfit_Joggers", "bottom", "Plaid joggers", ["pelvis", "thighs", "shins", "underwear_briefs"]),
     ("Outfit_Shorts", "bottom", "Plaid shorts", ["pelvis", "underwear_briefs"]),
@@ -1588,6 +1601,7 @@ def export_selection(path, objs, animations):
         o.select_set(True)
     bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", export_yup=True, use_selection=True,
                               export_animations=animations, export_animation_mode="NLA_TRACKS",
+                              export_anim_slide_to_zero=True, export_force_sampling=True,
                               export_skins=True, export_extras=True, export_image_format="AUTO")
 
 
