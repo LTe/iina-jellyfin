@@ -22,74 +22,21 @@
     "foot.R",
     "toe.R"
   ],
-  "body_sections": [
-    "feet",
-    "forearms",
-    "hands",
-    "neck",
-    "pelvis",
-    "shins",
-    "thighs",
-    "torso",
-    "underwear_briefs",
-    "underwear_top",
-    "upperarms"
-  ],
-  "default_outfit": [
-    "Outfit_Sweater",
-    "Outfit_Joggers",
-    "Hair"
-  ],
   "items": [
     {
       "node": "Hair",
       "slot": "hair",
-      "label": "Messy bun",
-      "hides": [],
       "file": "parts/hair_bun.glb"
     },
     {
       "node": "Outfit_Sweater",
       "slot": "top",
-      "label": "Navy sweater",
-      "hides": [
-        "torso",
-        "upperarms",
-        "underwear_top"
-      ],
       "file": "parts/sweater.glb"
-    },
-    {
-      "node": "Outfit_TShirt",
-      "slot": "top",
-      "label": "Lavender tee",
-      "hides": [
-        "torso",
-        "underwear_top"
-      ],
-      "file": "parts/tshirt.glb"
     },
     {
       "node": "Outfit_Joggers",
       "slot": "bottom",
-      "label": "Plaid joggers",
-      "hides": [
-        "pelvis",
-        "thighs",
-        "shins",
-        "underwear_briefs"
-      ],
       "file": "parts/joggers.glb"
-    },
-    {
-      "node": "Outfit_Shorts",
-      "slot": "bottom",
-      "label": "Plaid shorts",
-      "hides": [
-        "pelvis",
-        "underwear_briefs"
-      ],
-      "file": "parts/shorts.glb"
     }
   ]
 }

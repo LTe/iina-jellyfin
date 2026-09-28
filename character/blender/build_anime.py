@@ -425,7 +425,7 @@ def build_hair_clumps(volume, head, mats):
             t = k / steps
             dd = d0.slerp(target, t) if d0.dot(target) > -0.98 else d0
             p, nn = surf.hit(dd)
-            lift = 0.0025 + 0.0035 * math.sin(math.pi * t)
+            lift = -0.004 + 0.009 * math.sin(math.pi * min(1.0, t * 1.4)) ** 0.8   # roots sink into the volume
             pts.append(p + nn * lift)
         pts = BC.catmull(pts[::2], 5)
         w0 = RNG.uniform(0.020, 0.030)

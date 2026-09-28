@@ -2,6 +2,17 @@
 
 A rigged, game-ready 3D model of the character in `reference/turnaround.png`, generated procedurally with Blender's Python API.
 
+## v2: built from anatomy (current)
+
+```sh
+python3 character/blender/build_v2.py
+```
+
+- `anatomy.py` holds the proportion research and every body section. The body uses real female landmarks (7.15 heads tall, crotch at half height, elbows at the waist, wrists at the crotch, hips as wide as the shoulders) plus deliberate anime changes: a larger head, a thin long neck, slim limbs, small hands and feet, and big low-set eyes with a minimal nose and mouth.
+- The body parts are lofted from superellipse sections, unioned with Blender's voxel remesh, blended at the joins and decimated, then weighted with bone heat.
+- The sweater and joggers are built from the same skeleton paths and sections plus ease. They are cut with planar bisects, weighted with Data Transfer from the body, and each is limited to the bones that should move it.
+- Hair is its own mesh: a continuous volume plus strand clumps and a bun.
+
 ## Build
 
 The main build is the anime pipeline:
