@@ -531,7 +531,7 @@ def build_ears(mat):
 
 def arm_nodes(sx):
     return {
-        "shoulder": V(sx * 0.165, 0.012, 1.245),
+        "shoulder": V(sx * 0.160, 0.012, 1.300),
         "elbow": V(sx * 0.200, 0.024, 1.090),
         "cuff": V(sx * 0.214, 0.004, 0.965),
         "wrist": V(sx * 0.222, 0.000, 0.860),
@@ -737,7 +737,7 @@ SECTION_OF_BONE = {
 
 def section_of(co, bone):
     sec = SECTION_OF_BONE[bone.split(".")[0]]
-    if sec == "torso" and co.z > 1.27 and math.hypot(co.x, (co.y - 0.01) * 1.25) < 0.105:
+    if sec == "torso" and co.z > 1.20:
         return "neck"          # upper chest shows through necklines: never hidden
     if sec == "shins" and co.z < 0.17:
         return "feet"          # ankles show below cuffs: never hidden
@@ -929,60 +929,103 @@ def solidify(ob, thickness):
 # ease added, cut to length, pushed outside the skin, then bound to the rig
 # with weights copied from the body.
 # --------------------------------------------------------------------------
-def neckline_z(co, depth=0.050, top=1.345):
+def neckline_z(co, depth=0.050, top=1.355):
     r = math.hypot(co.x, (co.y - 0.01) * 1.25)
     front = max(0.0, -(co.y - 0.01) / max(r, 1e-4))
     return top - depth * front ** 1.5, r
 
 
-def build_top(name, mat, rig, body, face_sec, ws, *, ease=1.0, hem=0.928, sleeve_cut=None,
-              sleeve_r=(0.056, 0.050, 0.054, 0.050), neck_depth=0.050, neck_r=0.108):
+def build_top(name, mat, rig, body, face_sec, ws, *, ease=0.95, hem=0.928, sleeve_cut=None,
+              sleeve_r=(0.052, 0.046, 0.052, 0.042), neck_depth=0.030, neck_r=0.100):
     """Sweater-like top. sleeve_cut: z of the sleeve end (None = to the cuff)."""
-    torso = skin_mesh(name + "Torso", [
-        (V(0, 0.002, hem - 0.07), (0.188 * ease, 0.136 * ease)),
-        (V(0, -0.004, 1.030), (0.178 * ease, 0.128 * ease)),
-        (V(0, -0.010, 1.160), (0.165 * ease, 0.124 * ease)),
-        (V(0, 0.002, 1.245), (0.128, 0.094)),
-        (V(0, 0.010, 1.345), (0.074, 0.066)),
-        (V(0.120, 0.010, 1.275), (0.052, 0.052)),   # shoulder yokes close the torso
-        (V(-0.120, 0.010, 1.275), (0.052, 0.052)),
-    ], [(0, 1), (1, 2), (2, 3), (3, 4), (3, 5), (3, 6)], subdiv=2)
+    # one skin-modifier graph: torso with both sleeves branching off the upper chest,
+    # so the shoulder joins are seamless; neckline, hem and cuffs are cut afterwards
+    r0, r1, r2, r3 = sleeve_r
+    n = [
+        (V(0, 0.002, hem - 0.07), (0.188 * ease, 0.136 * ease)),   # 0
+        (V(0, -0.004, 1.030), (0.178 * ease, 0.128 * ease)),      # 1
+        (V(0, -0.010, 1.160), (0.165 * ease, 0.124 * ease)),      # 2
+        (V(0, 0.004, 1.270), (0.135, 0.096)),                     # 3 upper chest
+        (V(0, 0.010, 1.370), (0.066, 0.060)),                     # 4 neck (cut away)
+    ]
+    e = [(0, 1), (1, 2), (2, 3), (3, 4)]
+    ends = {}
+    for sx in (1, -1):
+        a = arm_nodes(sx)
+        i = len(n)
+        zc = (a["cuff"].z - 0.008) if sleeve_cut is None else sleeve_cut
+        # arm axis point at the sleeve end height
+        axis = [a["shoulder"], a["elbow"], a["cuff"]]
+        if zc >= a["elbow"].z:
+            t = (a["shoulder"].z - zc) / (a["shoulder"].z - a["elbow"].z)
+            end = a["shoulder"].lerp(a["elbow"], t)
+            dirv = (a["elbow"] - a["shoulder"]).normalized()
+            chain = [(a["shoulder"], (r0, r0)), (end - dirv * 0.02, (r1 * 1.02, r1 * 1.02)),
+                     (end + dirv * 0.03, (r1, r1))]
+        else:
+            t = (a["elbow"].z - zc) / (a["elbow"].z - a["cuff"].z)
+            end = a["elbow"].lerp(a["cuff"], t)
+            dirv = (a["cuff"] - a["elbow"]).normalized()
+            chain = [(a["shoulder"], (r0, r0)), (a["elbow"], (r1, r1)),
+                     (a["elbow"].lerp(end, 0.6) + V(sx * 0.003, 0, 0), (r2, r2)),
+                     (end, (r3, r3)), (end + dirv * 0.04, (r3 * 0.92, r3 * 0.92))]
+        n += chain
+        e += [(3, i)] + [(i + k, i + k + 1) for k in range(len(chain) - 1)]
+        ends[sx] = (end, dirv, max(r1, r2, r3) * 1.35)
+    whole = skin_mesh(name + "Whole", n, e, subdiv=2)
+
+    def beyond(co):
+        for sx, (end, dirv, rad) in ends.items():
+            d = co - end
+            along = d.dot(dirv)
+            radial = (d - dirv * along).length
+            if along > -0.002 and radial < rad and (co.x * sx) > 0.12:
+                return sx, along
+        return None
 
     def kill(c):
         z, r = neckline_z(c, neck_depth)
-        return (c.z > z and r < neck_r) or c.z < hem
+        if c.z > z and r < neck_r:
+            return True
+        if beyond(c):
+            return True
+        return c.z < hem and abs(c.x) < 0.19
 
     def snap(v):
-        if v.co.z < 1.0:
+        best = None
+        for sx, (end, dirv, rad) in ends.items():
+            d = v.co - end
+            along = d.dot(dirv)
+            radial = (d - dirv * along).length
+            if abs(along) < 0.03 and radial < rad and (v.co.x * sx) > 0.12:
+                best = (end, dirv, along)
+        if best:
+            end, dirv, along = best
+            v.co = v.co - dirv * along
+        elif v.co.z < 1.0:
             v.co.z = hem
-        else:
+        elif neckline_z(v.co, neck_depth)[1] < neck_r + 0.02:
             v.co.z = neckline_z(v.co, neck_depth)[0]
-    cut_faces(torso, kill, snap)
-    parts = [torso]
-    for sx in (1, -1):
-        a = arm_nodes(sx)
-        r0, r1, r2, r3 = sleeve_r
-        sl = skin_mesh(name + "Sleeve", [
-            (V(sx * 0.100, 0.008, 1.268), (0.044, 0.044)),
-            (a["shoulder"], (r0, r0)),
-            (a["elbow"], (r1, r1)),
-            (a["elbow"].lerp(a["cuff"], 0.55) + V(sx * 0.003, 0, 0), (r2, r2)),
-            (a["cuff"], (r3, r3)),
-            (a["cuff"] - V(0, 0, 0.050), (r3 * 0.92, r3 * 0.92)),
-        ], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)], subdiv=2)
-        zc = (a["cuff"].z - 0.008) if sleeve_cut is None else sleeve_cut
-
-        def kill_s(c, zc=zc):
-            z, r = neckline_z(c, neck_depth)
-            return c.z < zc or (c.z > z and r < neck_r)
-
-        def snap_s(v, zc=zc):
-            if v.co.z < zc + 0.05:
-                v.co.z = zc
-            else:
-                v.co.z = neckline_z(v.co, neck_depth)[0]
-        cut_faces(sl, kill_s, snap_s)
-        parts.append(sl)
+    cut_faces(whole, kill, snap)
+    # split into torso / sleeves only for weight sampling, by distance to the arm chain
+    bm = bmesh.new()
+    bm.from_mesh(whole.data)
+    parts = []
+    for part in ("torso", 1, -1):
+        pb = bm.copy()
+        pb.faces.ensure_lookup_table()
+        def which(c):
+            if abs(c.x) < 0.15 or c.z > 1.24 and abs(c.x) < 0.17:
+                return "torso"
+            return 1 if c.x > 0 else -1
+        killf = [f for f in pb.faces if which(f.calc_center_median()) != part]
+        bmesh.ops.delete(pb, geom=killf, context="FACES")
+        me = bpy.data.meshes.new(f"{name}_{part}")
+        pb.to_mesh(me)
+        pb.free()
+        parts.append(link(bpy.data.objects.new(f"{name}_{part}", me)))
+    bm.free()
+    bpy.data.objects.remove(whole)
     s_torso = BodySampler(body, face_sec, ws, {"torso", "pelvis", "neck"})
     s_arms = BodySampler(body, face_sec, ws, {"upperarms", "forearms"})
     fit_outside(parts[0], s_torso)
@@ -994,6 +1037,12 @@ def build_top(name, mat, rig, body, face_sec, ws, *, ease=1.0, hem=0.928, sleeve
     for o, smp in zip(parts, (s_torso, s_arms, s_arms)):
         bind_garment(o, rig, smp)
     ob = join_skinned(parts, name, rig)
+    bm = bmesh.new()                       # weld the split seams back together
+    bm.from_mesh(ob.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bm.to_mesh(ob.data)
+    bm.free()
+    shade_smooth(ob)
     ob.data.materials.append(mat)
     return ob
 
@@ -1059,7 +1108,7 @@ def join_skinned(objs, name, rig):
 def build_drawstring(mat):
     g = GeoBatch()
     front = lambda x, z: V(x, -0.118 - 0.012 * (1 - (x / 0.05) ** 2), z)
-    knot = V(0.0, -0.132, 0.955)
+    knot = V(0.0, -0.110, 0.918)
     # loops of the bow
     for sx in (-1, 1):
         ctrl = [knot, knot + V(sx * 0.020, -0.004, 0.012), knot + V(sx * 0.040, -0.006, 0.006),
@@ -1510,7 +1559,7 @@ def glb_to_embedded_gltf(glb_path, out_path):
 # --------------------------------------------------------------------------
 WARDROBE = [
     # object name, slot, label, body sections hidden while worn
-    ("Outfit_Sweater", "top", "Navy sweater", ["torso", "upperarms", "underwear_top"]),
+    ("Outfit_Sweater", "top", "Navy sweater", ["torso", "underwear_top"]),
     ("Outfit_TShirt", "top", "Lavender tee", ["torso", "underwear_top"]),
     ("Outfit_Joggers", "bottom", "Plaid joggers", ["pelvis", "thighs", "shins", "underwear_briefs"]),
     ("Outfit_Shorts", "bottom", "Plaid shorts", ["pelvis", "underwear_briefs"]),

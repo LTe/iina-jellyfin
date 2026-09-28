@@ -4,6 +4,24 @@ A rigged, game-ready 3D model of the character in `reference/turnaround.png`, ge
 
 ## Build
 
+The main build is the anime pipeline:
+
+```sh
+python3 character/blender/build_anime.py             # build, export, EEVEE toon renders
+python3 character/blender/build_anime.py --no-render
+```
+
+EEVEE needs `libegl1` installed when running headless. The older reference-projection build is kept as `build_character.py`; the anime build reuses its body, rig, garments and export code.
+
+## Anime pipeline (`build_anime.py`)
+
+- **Face:** the head is modelled from the drawn outline and profile (`head_from_drawing.py`). The eyes, brows, lashes, mouth and blush are one vector-drawn decal at the positions measured on the sheet, projected from the front only. Normals are transferred from a smooth proxy so cel shadows stay clean.
+- **Hair (separate mesh and slot):** a continuous hair volume whose edge lies exactly on the hairline, 64 tapered, lens-profiled strand clumps that each run unbroken from the hairline into the bun, a bun wound from thick clumps, face-framing locks and nape wisps. A strand texture adds clump-edge shading and a highlight band.
+- **Clothes (separate meshes):** the sweater is one skin-modifier graph (torso plus sleeves, so the shoulders are seamless), with the neckline, hem and sleeve ends cut cleanly. Joggers, tee and shorts work the same way.
+- **Shading:** exported glTF materials are plain PBR (base colour and textures). Renders rebuild them as a 2-tone cel shader (Diffuse, Shader to RGB, constant ramp, rim light) with inverted-hull ink outlines.
+
+Older build:
+
 ```sh
 pip install bpy pillow numpy        # Blender 5.0 as a Python module
 python3 character/blender/build_character.py            # build, export, render
@@ -16,6 +34,7 @@ python3 character/blender/build_character.py --no-render
 | --- | --- |
 | `export/character.glb` | Everything in one file: rig (21 bones), base body, head, hair, all clothing items, `Idle` and `Walk` clips. Meters, Y-up, facing +Z |
 | `export/parts/base_body.glb` | Rig, body (split into hideable sections), head, hair, underwear and the animations |
+| `export/parts/hair_bun.glb` | The hair, skinned to the head bone |
 | `export/parts/{sweater,tshirt,joggers,shorts}.glb` | One clothing item each, skinned to the same skeleton |
 | `export/wardrobe.json` | Slots, labels and the body sections each item hides while worn |
 | `export/character.gltf` | The same asset as a single embedded-JSON glTF |

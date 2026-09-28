@@ -25,6 +25,7 @@
   "body_sections": [
     "feet",
     "forearms",
+    "hands",
     "neck",
     "pelvis",
     "shins",
@@ -36,16 +37,23 @@
   ],
   "default_outfit": [
     "Outfit_Sweater",
-    "Outfit_Joggers"
+    "Outfit_Joggers",
+    "Hair"
   ],
   "items": [
+    {
+      "node": "Hair",
+      "slot": "hair",
+      "label": "Messy bun",
+      "hides": [],
+      "file": "parts/hair_bun.glb"
+    },
     {
       "node": "Outfit_Sweater",
       "slot": "top",
       "label": "Navy sweater",
       "hides": [
         "torso",
-        "upperarms",
         "underwear_top"
       ],
       "file": "parts/sweater.glb"

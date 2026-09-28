@@ -110,9 +110,9 @@
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">Character model · iteration v3 · matched to the sheet</div>
+    <div class="eyebrow">Character model · iteration v4 · anime pipeline</div>
     <h1>Pajama Girl, in 3D</h1>
-    <p class="lede">A rigged, game-ready model built from your turnaround sheet. Its shape is fitted to the drawn outlines in every view, the head is modelled from the drawn face profile, and the colours are painted straight from your art. Clothes are separate items on one skeleton. Orbit around, press Walk, or swap the outfit.</p>
+    <p class="lede">Rebuilt the way stylized anime characters are made: one clean painted face decal, hair built from continuous strand clumps that flow from the hairline into the bun, cel shading with ink outlines, and hair and every clothing item as separate meshes on one skeleton. Orbit around, press Walk, or swap the hair and outfit.</p>
     <div class="swatches" aria-label="Palette sampled from the reference">
       <span style="background:#2f3a6e" title="Shirt #2F3A6E"></span>
       <span style="background:#6f7bac" title="Pants #6F7BAC"></span>
@@ -138,6 +138,10 @@
 
     <aside class="controls">
       <div class="group">
+        <div class="label">Hair</div>
+        <div class="chips" id="w-hair" role="group" aria-label="Hair" data-slot="hair"></div>
+      </div>
+      <div class="group">
         <div class="label">Top</div>
         <div class="chips" id="w-top" role="group" aria-label="Top" data-slot="top"></div>
       </div>
@@ -154,8 +158,7 @@
       <div class="group">
         <div class="label">Shading</div>
         <div class="chips" role="group" aria-label="Shading">
-          <button class="chip" id="s-paint" data-shade="paint" aria-pressed="true">Painted</button>
-          <button class="chip" id="s-toon" data-shade="toon" aria-pressed="false">Toon</button>
+          <button class="chip" id="s-toon" data-shade="toon" aria-pressed="true">Toon</button>
           <button class="chip" id="s-pbr" data-shade="pbr" aria-pressed="false">PBR</button>
           <button class="chip" id="s-clay" data-shade="clay" aria-pressed="false">Clay</button>
         </div>
@@ -183,34 +186,22 @@
   </div>
 
   <section>
-    <h2>Model against the sheet, camera for camera</h2>
-    <p class="caption">Top row: your drawing. Bottom row: the model, rendered with cameras matched to each drawn view. The outline, face structure and colours all come from the sheet.</p>
-    <div class="shot"><img src="img/match.jpg" alt="Reference views above, matching renders of the 3D model below" loading="lazy"></div>
+    <h2>Against the sheet</h2>
+    <p class="caption">Top: your drawing. Bottom: the model in EEVEE with cel shading and ink outlines, from the same five angles.</p>
+    <div class="shot"><img src="img/compare.jpg" alt="Reference turnaround above, toon renders of the model below" loading="lazy"></div>
   </section>
 
   <section>
-    <h2>Angles the sheet never drew</h2>
-    <p class="caption">The real test of a 3D model: her left three-quarter, left profile and back three-quarter, plus close-ups of the head. The face is modelled from the drawn profile (brow, nose, lips, chin), so it holds up from the side.</p>
+    <h2>Head from every side</h2>
+    <p class="caption">Front, three-quarter, profile, other three-quarter and back. There is one set of facial features, and every hair clump runs unbroken from the hairline into the bun.</p>
+    <div class="shot"><img src="img/inbetween_head.jpg" alt="Head renders from five angles" loading="lazy"></div>
     <div class="shot"><img src="img/inbetween_body.jpg" alt="Full-body renders from four angles between the drawn views" loading="lazy"></div>
-    <div class="shot"><img src="img/inbetween_head.jpg" alt="Head renders from four angles between the drawn views" loading="lazy"></div>
   </section>
 
   <section>
-    <h2>One body, swappable clothes</h2>
-    <p class="caption">From left: base body, sweater with joggers, tee with shorts, tee with joggers, sweater with shorts. The sweater and joggers are painted from your sheet. The tee and shorts aren't in the sheet, so they still use flat colours, and the skin they reveal has no drawing to paint from yet.</p>
-    <div class="shot"><img src="img/wardrobe.jpg" alt="The same character in five outfit combinations" loading="lazy"></div>
-  </section>
-
-  <section>
-    <h2>Clothes follow the body</h2>
-    <p class="caption">Mid-stride in the Walk clip. Every garment copies its skin weights from the body surface under it, so knees, hips and arms bend the fabric the same way they bend the skin.</p>
-    <div class="shot"><img src="img/deform.jpg" alt="Walk poses showing the joggers, sweater, tee and shorts bending with the legs and arms" loading="lazy"></div>
-  </section>
-
-  <section>
-    <h2>Lit turnaround</h2>
-    <p class="caption">The painted colours with a soft key and rim light on top, the way it would look in a lit game scene.</p>
-    <div class="shot"><img src="img/compare.jpg" alt="Reference turnaround above, Blender renders of the 3D model from the same five angles below" loading="lazy"></div>
+    <h2>Separate hair and clothes</h2>
+    <p class="caption">From left: base body, sweater with joggers, tee with shorts, tee with joggers, and the same without the hair. Every item is its own mesh on the shared skeleton.</p>
+    <div class="shot"><img src="img/wardrobe.jpg" alt="The character in several outfits, and without hair" loading="lazy"></div>
   </section>
 
   <div class="cols">
@@ -221,9 +212,9 @@
         <li><span class="tag ok">fit</span>Each garment is built from the body's skeleton with ease added, cut to length, then pushed 6&nbsp;mm outside the skin wherever it would sit inside.</li>
         <li><span class="tag ok">bind</span>Garment weights are copied from the nearest body surface: sleeves only from the arms, pants only from the pelvis and legs, so the fabric bends like the skin.</li>
         <li><span class="tag ok">hide</span>Each item lists the body parts it covers completely. The sweater hides the torso and upper arms, and the joggers hide the pelvis, thighs and shins.</li>
-        <li><span class="tag ok">match</span>Shape fitted to the drawn outlines (93% overlap per view), head modelled from the drawn profile, hair as the drawing's volume plus alpha cards for flyaway strands, colours projected from the art.</li>
-        <li><span class="tag next">rough</span>Hair edges and the jaw line still show small artefacts, and the hands are simplified.</li>
-        <li><span class="tag next">next</span>Paint the tee and shorts in the same style, and add cloth physics for the loose hem.</li>
+        <li><span class="tag ok">face</span>Head modelled from the drawn profile. Eyes, brows, lashes, mouth and blush are one vector-drawn decal at the measured positions, and custom normals keep the face shading clean.</li>
+        <li><span class="tag ok">hair</span>A continuous hair volume plus 64 tapered strand clumps from hairline to bun, a bun wound from thick clumps, face-framing locks and nape wisps. A strand texture adds edge shading and a highlight band.</li>
+        <li><span class="tag next">next</span>Sweater folds and bunched cuffs, fuller messy volume at the sides, and finer hands.</li>
       </ul>
     </div>
     <div class="card">
@@ -301,7 +292,7 @@ const toonRamp = (() => {
 let model, mixer, skeletonHelper, actions = {}, current = null;
 const items = {};      // node name -> { node, slot, label, hides[] }
 const sections = {};   // body section -> node
-const worn = { top: "Outfit_Sweater", bottom: "Outfit_Joggers" };
+const worn = { hair: "Hair", top: "Outfit_Sweater", bottom: "Outfit_Joggers" };
 
 function applyOutfit() {
   const hidden = new Set();
@@ -315,7 +306,7 @@ function applyOutfit() {
 }
 
 function buildWardrobeUI() {
-  for (const slot of ["top", "bottom"]) {
+  for (const slot of ["hair", "top", "bottom"]) {
     const el = document.getElementById("w-" + slot);
     const entries = Object.entries(items).filter(([, it]) => it.slot === slot);
     for (const [name, it] of [...entries, ["", { label: "None" }]]) {
@@ -331,7 +322,7 @@ function buildWardrobeUI() {
   }
 }
 const meshes = [];
-const state = { shade: "paint", wire: false };
+const state = { shade: "toon", wire: false };
 
 // hair cards are flat and drawn for one direction: hide them when seen edge-on
 function cardFade(mat) {
@@ -365,7 +356,7 @@ function applyShading() {
       })();
     } else if (state.shade === "pbr") mat = src;
     else if (state.shade === "toon") {
-      mat = m.userData.toon ||= new THREE.MeshToonMaterial({ color: src.color, map: src.map, gradientMap: toonRamp });
+      mat = m.userData.toon ||= new THREE.MeshToonMaterial({ color: src.color, map: src.map, gradientMap: toonRamp, side: THREE.FrontSide });
     } else {
       mat = m.userData.clay ||= new THREE.MeshStandardMaterial({ color: 0xd8d4cc, roughness: 0.8 });
     }
@@ -422,7 +413,7 @@ load().then(gltf => {
     }
     if (o.isBone) bones++;
     const u = o.userData || {};
-    if (u.wardrobe_slot === "top" || u.wardrobe_slot === "bottom") {
+    if (u.wardrobe_slot === "top" || u.wardrobe_slot === "bottom" || (u.wardrobe_slot === "hair" && u.label)) {
       items[o.name] = { node: o, slot: u.wardrobe_slot, label: u.label || o.name, hides: (u.hides || "").split(",").filter(Boolean) };
     }
     if (u.body_section) sections[u.body_section] = o;
