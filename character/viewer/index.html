@@ -1,0 +1,398 @@
+<meta charset="utf-8">
+<title>Pajama Girl Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #f2f2f7;
+    --panel: #ffffff;
+    --ink: #1d2340;
+    --ink-soft: #545b7a;
+    --line: #d9dbea;
+    --navy: #2f3a6e;
+    --plaid: #7e8cc6;
+    --cream: #ece4d6;
+    --hair: #6a3a1f;
+    --skin: #e3a47c;
+    --stage-top: #e7e9f4;
+    --stage-bottom: #cfd3e8;
+    --chip-on: #2f3a6e;
+    --chip-on-ink: #ffffff;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #12162a;
+      --panel: #1b2040;
+      --ink: #eceef8;
+      --ink-soft: #a5abc8;
+      --line: #2e355c;
+      --plaid: #9aa6de;
+      --stage-top: #262c52;
+      --stage-bottom: #151a33;
+      --chip-on: #9aa6de;
+      --chip-on-ink: #12162a;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #12162a;
+    --panel: #1b2040;
+    --ink: #eceef8;
+    --ink-soft: #a5abc8;
+    --line: #2e355c;
+    --plaid: #9aa6de;
+    --stage-top: #262c52;
+    --stage-bottom: #151a33;
+    --chip-on: #9aa6de;
+    --chip-on-ink: #12162a;
+  }
+
+  body { background: var(--ground); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 40px; }
+
+  header { display: grid; gap: 6px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+  h1 { font-family: var(--display); font-weight: 700; font-size: clamp(30px, 5vw, 48px); line-height: 1.05; margin: 0; text-wrap: balance; }
+  h2 { font-family: var(--display); font-weight: 600; font-size: 22px; margin: 0; text-wrap: balance; }
+  .lede { max-width: 64ch; color: var(--ink-soft); margin: 0; }
+  .swatches { display: flex; gap: 6px; margin-top: 6px; }
+  .swatches span { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); }
+
+  /* studio: viewport + controls */
+  .studio { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+  .stage { position: relative; aspect-ratio: 4 / 5; max-height: 78vh; width: 100%; border-radius: 14px; overflow: hidden;
+           background: linear-gradient(180deg, var(--stage-top), var(--stage-bottom)); }
+  .stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .status { position: absolute; inset: auto 12px 12px 12px; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); pointer-events: none; }
+  .views { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+
+  .controls { display: grid; gap: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .group { display: grid; gap: 8px; }
+  .group > .label { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  button.chip { font: 500 13px/1 var(--body); padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line);
+                background: var(--panel); color: var(--ink); cursor: pointer; }
+  .views button.chip { background: color-mix(in srgb, var(--panel) 82%, transparent); backdrop-filter: blur(6px); }
+  button.chip[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); border-color: var(--chip-on); }
+  button.chip:focus-visible { outline: 2px solid var(--plaid); outline-offset: 2px; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; }
+  .toggle input { width: 18px; height: 18px; accent-color: var(--navy); }
+  dl.stats { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+  dl.stats dt { color: var(--ink-soft); }
+  dl.stats dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+
+  section { display: grid; gap: 14px; }
+  .shot { background: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); }
+  .shot img { display: block; width: 100%; height: auto; }
+  .caption { font-size: 13px; color: var(--ink-soft); margin: 0; max-width: 70ch; }
+
+  .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; display: grid; gap: 10px; align-content: start; }
+  .card ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+  .card li { max-width: 62ch; }
+  .tag { display: inline-block; font: 500 11px/1 var(--mono); letter-spacing: .04em; padding: 4px 7px; border-radius: 6px; margin-right: 6px; vertical-align: 1px; }
+  .tag.ok { background: color-mix(in srgb, #3f9a6b 18%, transparent); color: color-mix(in srgb, #3f9a6b 80%, var(--ink)); }
+  .tag.next { background: color-mix(in srgb, var(--skin) 30%, transparent); color: color-mix(in srgb, var(--hair) 85%, var(--ink)); }
+  code { font-family: var(--mono); font-size: 12.5px; background: color-mix(in srgb, var(--plaid) 16%, transparent); padding: 1px 5px; border-radius: 4px; }
+  .bones { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); line-height: 1.7; }
+
+  @media (max-width: 860px) {
+    .studio { grid-template-columns: 1fr; }
+    .stage { aspect-ratio: 3 / 4; max-height: 70vh; }
+    .cols { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Character model · iteration v1 · Blender 5.0 → glTF</div>
+    <h1>Pajama Girl, in 3D</h1>
+    <p class="lede">A rigged, game-ready model of the character from your turnaround sheet. It is built entirely by a Blender Python script, so every change you ask for is a parameter tweak and a rebuild. Drag to orbit, scroll to zoom, and switch between the reference camera angles.</p>
+    <div class="swatches" aria-label="Palette sampled from the reference">
+      <span style="background:#2f3a6e" title="Shirt #2F3A6E"></span>
+      <span style="background:#6f7bac" title="Pants #6F7BAC"></span>
+      <span style="background:#cfcfdf" title="Plaid line #CFCFDF"></span>
+      <span style="background:#6a3a1f" title="Hair #6A3A1F"></span>
+      <span style="background:#e3a47c" title="Skin #E3A47C"></span>
+      <span style="background:#ece4d6" title="Drawstring #ECE4D6"></span>
+    </div>
+  </header>
+
+  <div class="studio">
+    <div class="stage" id="stage">
+      <div class="views" role="group" aria-label="Camera angle">
+        <button class="chip" id="v-front" data-az="0" aria-pressed="true">Front</button>
+        <button class="chip" id="v-tq" data-az="-40">¾</button>
+        <button class="chip" id="v-side" data-az="-90">Side</button>
+        <button class="chip" id="v-back" data-az="180">Back</button>
+        <button class="chip" id="v-btq" data-az="-140">Back ¾</button>
+        <button class="chip" id="v-face" data-az="0" data-face="1">Face</button>
+      </div>
+      <div class="status" id="status">Loading model…</div>
+    </div>
+
+    <aside class="controls">
+      <div class="group">
+        <div class="label">Animation</div>
+        <div class="chips" id="anims" role="group" aria-label="Animation">
+          <button class="chip" data-anim="" aria-pressed="false">Rest pose</button>
+        </div>
+      </div>
+      <div class="group">
+        <div class="label">Shading</div>
+        <div class="chips" role="group" aria-label="Shading">
+          <button class="chip" id="s-toon" data-shade="toon" aria-pressed="true">Toon</button>
+          <button class="chip" id="s-pbr" data-shade="pbr" aria-pressed="false">PBR</button>
+          <button class="chip" id="s-clay" data-shade="clay" aria-pressed="false">Clay</button>
+        </div>
+      </div>
+      <div class="group">
+        <label class="toggle" for="t-outline">Ink outline <input type="checkbox" id="t-outline" checked></label>
+        <label class="toggle" for="t-wire">Wireframe <input type="checkbox" id="t-wire"></label>
+        <label class="toggle" for="t-spin">Turntable <input type="checkbox" id="t-spin"></label>
+        <label class="toggle" for="t-bones">Show skeleton <input type="checkbox" id="t-bones"></label>
+      </div>
+      <div class="group">
+        <div class="label">Asset</div>
+        <dl class="stats">
+          <dt>Triangles</dt><dd id="st-tris">–</dd>
+          <dt>Meshes</dt><dd id="st-meshes">–</dd>
+          <dt>Bones</dt><dd id="st-bones">–</dd>
+          <dt>Textures</dt><dd id="st-tex">–</dd>
+          <dt>Height</dt><dd id="st-h">–</dd>
+          <dt>Download size</dt><dd id="st-size">–</dd>
+        </dl>
+      </div>
+    </aside>
+  </div>
+
+  <section>
+    <h2>Blender renders against the sheet</h2>
+    <p class="caption">Top row is your reference. Bottom row is the same five angles rendered in Cycles, orthographic, rest pose.</p>
+    <div class="shot"><img src="img/compare.jpg" alt="Reference turnaround above, Blender renders of the 3D model from the same five angles below" loading="lazy"></div>
+  </section>
+
+  <section>
+    <h2>Face and hair close-up</h2>
+    <p class="caption">The face (eyes, brows, lashes, blush and mouth) is a painted texture, which is the usual approach for stylized game characters. The nose, cheeks and chin are geometry.</p>
+    <div class="shot"><img src="img/closeups.jpg" alt="Close-up renders of the face from the front, three-quarter and side" loading="lazy"></div>
+  </section>
+
+  <div class="cols">
+    <div class="card">
+      <h2>Where v1 stands</h2>
+      <ul>
+        <li><span class="tag ok">matches</span>Height and proportions: head, neckline, hem, crotch, knees and cuffs are placed from pixel measurements of the sheet.</li>
+        <li><span class="tag ok">matches</span>Navy sweater with bunched sleeves, plaid joggers with cuffs, cream drawstring bow, bare feet with toes.</li>
+        <li><span class="tag ok">matches</span>Messy top-back bun, swept-up strands, face-framing tendrils and nape wisps.</li>
+        <li><span class="tag next">rough</span>Sweater reads boxy. It needs a softer drape at the hem and folds at the sleeves.</li>
+        <li><span class="tag next">rough</span>The bun looks like separate coils. It should read as one soft mass.</li>
+        <li><span class="tag next">rough</span>Neckline is higher and narrower than the sheet's wide scoop.</li>
+        <li><span class="tag next">rough</span>Hands and feet are simplified. There are no finger bones yet.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Using it in a game</h2>
+      <ul>
+        <li><code>character.glb</code> has meshes, a skin, 2 textures and the <code>Idle</code> and <code>Walk</code> clips. It loads directly in Unity (glTFast), Unreal, Godot and three.js.</li>
+        <li>Meters, Y-up, facing +Z. The feet rest on the origin.</li>
+        <li>About 105k triangles in this build. Tell me the target (mobile around 15k, PC around 40k) and I'll add a decimated LOD.</li>
+        <li>Skeleton, 21 bones:</li>
+      </ul>
+      <div class="bones">hips › spine › chest › neck › head · shoulder › upper_arm › forearm › hand (.L/.R) · thigh › shin › foot › toe (.L/.R)</div>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2>How to steer the next iteration</h2>
+    <p class="caption">Leave a comment on this page or tell me in chat. Specific notes turn into parameter changes fastest, for example:</p>
+    <ul>
+      <li>"Head 10% smaller, neck shorter, a wider scoop neckline."</li>
+      <li>"Sweater looser and longer, covering the waistband."</li>
+      <li>"Bun bigger and rounder, fewer loose strands."</li>
+      <li>"More anime: bigger eyes, smaller nose."</li>
+      <li>"Target Unity, 20k triangles, Mixamo-compatible bone names."</li>
+    </ul>
+  </section>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { OutlineEffect } from "three/addons/effects/OutlineEffect.js";
+
+const stage = document.getElementById("stage");
+const statusEl = document.getElementById("status");
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+stage.prepend(renderer.domElement);
+const outline = new OutlineEffect(renderer, { defaultThickness: 0.0035, defaultColor: [0.13, 0.1, 0.12] });
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(28, 1, 0.05, 50);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.target.set(0, 0.9, 0);
+controls.minDistance = 0.4;
+controls.maxDistance = 8;
+
+scene.add(new THREE.HemisphereLight(0xf4f2ff, 0x6a6f8e, 1.4));
+const key = new THREE.DirectionalLight(0xffffff, 2.2);
+key.position.set(-1.5, 2.5, 3);
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xdfe4ff, 1.0);
+rim.position.set(2, 2, -3);
+scene.add(rim);
+const floor = new THREE.Mesh(new THREE.CircleGeometry(0.7, 64), new THREE.MeshBasicMaterial({ color: 0x2f3a6e, transparent: true, opacity: 0.12 }));
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+
+const toonRamp = (() => {
+  const d = new Uint8Array([150, 205, 255]);
+  const t = new THREE.DataTexture(d, 3, 1, THREE.RedFormat);
+  t.minFilter = t.magFilter = THREE.NearestFilter;
+  t.needsUpdate = true;
+  return t;
+})();
+
+let model, mixer, skeletonHelper, actions = {}, current = null;
+const meshes = [];
+const state = { shade: "toon", wire: false };
+
+function applyShading() {
+  for (const m of meshes) {
+    const src = m.userData.pbr;
+    let mat;
+    if (state.shade === "pbr") mat = src;
+    else if (state.shade === "toon") {
+      mat = m.userData.toon ||= new THREE.MeshToonMaterial({ color: src.color, map: src.map, gradientMap: toonRamp });
+    } else {
+      mat = m.userData.clay ||= new THREE.MeshStandardMaterial({ color: 0xd8d4cc, roughness: 0.8 });
+    }
+    mat.wireframe = state.wire;
+    m.material = mat;
+  }
+}
+
+function frame(az, face) {
+  const a = THREE.MathUtils.degToRad(az);
+  const d = face ? 1.0 : 4.6;
+  const ty = face ? 1.56 : 0.9;
+  controls.target.set(0, ty, 0);
+  camera.position.set(Math.sin(a) * d, ty + (face ? 0.02 : 0.1), Math.cos(a) * d);
+  controls.update();
+}
+
+function setPressed(groupEl, btn) {
+  groupEl.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b === btn)));
+}
+
+function play(name) {
+  if (current) current.fadeOut(0.25);
+  current = name ? actions[name] : null;
+  if (current) current.reset().fadeIn(0.25).play();
+  else if (model) { mixer.stopAllAction(); model.traverse(o => o.isSkinnedMesh && o.skeleton.pose()); }
+}
+
+const candidates = ["character.json", "../export/character.glb"];
+async function load() {
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const buf = await res.arrayBuffer();
+      document.getElementById("st-size").textContent = (buf.byteLength / 1048576).toFixed(1) + " MB";
+      return await new GLTFLoader().parseAsync(buf, "");
+    } catch (e) { /* try next */ }
+  }
+  throw new Error("character.glb not found next to this page");
+}
+
+load().then(gltf => {
+  model = gltf.scene;
+  scene.add(model);
+  let tris = 0, bones = 0; const tex = new Set();
+  model.traverse(o => {
+    if (o.isMesh) {
+      meshes.push(o);
+      o.userData.pbr = o.material;
+      if (o.material.map) tex.add(o.material.map.uuid);
+      tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+    }
+    if (o.isBone) bones++;
+  });
+  const box = new THREE.Box3().setFromObject(model);
+  document.getElementById("st-tris").textContent = Math.round(tris).toLocaleString("en-US");
+  document.getElementById("st-meshes").textContent = meshes.length;
+  document.getElementById("st-bones").textContent = bones;
+  document.getElementById("st-tex").textContent = tex.size;
+  document.getElementById("st-h").textContent = (box.max.y - box.min.y).toFixed(2) + " m";
+
+  skeletonHelper = new THREE.SkeletonHelper(model);
+  skeletonHelper.visible = false;
+  scene.add(skeletonHelper);
+
+  mixer = new THREE.AnimationMixer(model);
+  const animsEl = document.getElementById("anims");
+  for (const clip of gltf.animations) {
+    actions[clip.name] = mixer.clipAction(clip);
+    const b = document.createElement("button");
+    b.className = "chip"; b.dataset.anim = clip.name; b.id = "a-" + clip.name;
+    b.textContent = clip.name; b.setAttribute("aria-pressed", "false");
+    animsEl.append(b);
+  }
+  animsEl.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    setPressed(animsEl, b); play(b.dataset.anim);
+  });
+  const idleBtn = animsEl.querySelector('[data-anim="Idle"]');
+  if (idleBtn) { setPressed(animsEl, idleBtn); play("Idle"); }
+  applyShading();
+  statusEl.textContent = "Drag to orbit · scroll to zoom · right-drag to pan";
+}).catch(err => { statusEl.textContent = err.message; });
+
+document.querySelector(".views").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  setPressed(e.currentTarget, b); frame(+b.dataset.az, !!b.dataset.face);
+});
+document.querySelector('[aria-label="Shading"]').addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  setPressed(e.currentTarget, b); state.shade = b.dataset.shade; applyShading();
+});
+const outlineBox = document.getElementById("t-outline");
+document.getElementById("t-wire").addEventListener("change", e => { state.wire = e.target.checked; applyShading(); });
+document.getElementById("t-spin").addEventListener("change", e => { controls.autoRotate = e.target.checked; });
+document.getElementById("t-bones").addEventListener("change", e => { if (skeletonHelper) skeletonHelper.visible = e.target.checked; });
+controls.autoRotateSpeed = 2.0;
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+resize();
+frame(0, false);
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta();
+  if (mixer) mixer.update(dt);
+  controls.update();
+  if (outlineBox.checked && !state.wire) outline.render(scene, camera);
+  else renderer.render(scene, camera);
+});
+</script>
