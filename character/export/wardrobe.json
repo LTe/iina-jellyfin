@@ -25,12 +25,13 @@
   "body_sections": [
     "feet",
     "forearms",
-    "hands",
     "neck",
     "pelvis",
     "shins",
     "thighs",
     "torso",
+    "underwear_briefs",
+    "underwear_top",
     "upperarms"
   ],
   "default_outfit": [
@@ -44,7 +45,8 @@
       "label": "Navy sweater",
       "hides": [
         "torso",
-        "upperarms"
+        "upperarms",
+        "underwear_top"
       ],
       "file": "parts/sweater.glb"
     },
@@ -53,7 +55,8 @@
       "slot": "top",
       "label": "Lavender tee",
       "hides": [
-        "torso"
+        "torso",
+        "underwear_top"
       ],
       "file": "parts/tshirt.glb"
     },
@@ -64,7 +67,8 @@
       "hides": [
         "pelvis",
         "thighs",
-        "shins"
+        "shins",
+        "underwear_briefs"
       ],
       "file": "parts/joggers.glb"
     },
@@ -73,7 +77,8 @@
       "slot": "bottom",
       "label": "Plaid shorts",
       "hides": [
-        "pelvis"
+        "pelvis",
+        "underwear_briefs"
       ],
       "file": "parts/shorts.glb"
     }

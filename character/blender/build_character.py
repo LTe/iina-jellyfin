@@ -14,6 +14,8 @@ import os
 import random
 import sys
 
+import numpy as np
+
 import bpy
 import bmesh
 from mathutils import Vector, Matrix
@@ -408,7 +410,7 @@ def face_uv(x, z):
 
 def build_head(mat):
     bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=32, radius=1.0)
+    bmesh.ops.create_uvsphere(bm, u_segments=96, v_segments=64, radius=1.0)
     for v in bm.verts:
         x, y, z = v.co
         t = max(0.0, -z)          # lower half
@@ -468,6 +470,43 @@ def build_head(mat):
             u, vv = 0.01, 0.01
         uv.data[loop.index].uv = (min(max(u, 0.005), 0.995), min(max(vv, 0.005), 0.995))
     return ob
+
+
+def build_head_from_drawing(mat):
+    sys.path.insert(0, HERE)
+    import head_from_drawing as HD
+    verts, faces = HD.build_mesh()
+    ob = mesh_obj("Head", verts, faces, mat)
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    ob["from_drawing"] = True
+    return ob
+
+
+def build_ears_from_drawing(mat):
+    import head_from_drawing as HD
+    objs = []
+    for sx in (-1, 1):
+        c, (rx, ry, rz), yaw = HD.ear_frame(sx)
+        bm = bmesh.new()
+        bmesh.ops.create_uvsphere(bm, u_segments=20, v_segments=14, radius=1.0)
+        for v in bm.verts:
+            x, y, z = v.co
+            # a flattened shell: thicker at the rim, slightly cupped toward the front
+            v.co = Vector((x * rx * (1.0 - 0.3 * max(0.0, -y)), y * ry, z * rz * (1 - 0.15 * max(0.0, z))))
+        me = bpy.data.meshes.new("Ear")
+        bm.to_mesh(me)
+        bm.free()
+        ob = link(bpy.data.objects.new("Ear", me))
+        me.transform(Matrix.Translation(V(*c)) @ Matrix.Rotation(yaw, 4, "Z") @ Matrix.Rotation(0.12, 4, "X"))
+        shade_smooth(ob)
+        me.materials.append(mat)
+        objs.append(ob)
+    return objs
 
 
 def build_ears(mat):
@@ -585,7 +624,7 @@ def foot_frame(sx):
     yaw = Matrix.Rotation(-sx * 0.12, 4, "Z")   # toes slightly outward
 
     def F(x, y, z):
-        p = yaw @ Vector((x * sx * 1.12, y * 1.12, z))
+        p = yaw @ Vector((x * sx * 1.45, y * 1.28, z * 1.15))
         return V(ax + p.x, 0.030 + p.y, z)
     return F
 
@@ -698,7 +737,7 @@ SECTION_OF_BONE = {
 
 def section_of(co, bone):
     sec = SECTION_OF_BONE[bone.split(".")[0]]
-    if sec == "torso" and co.z > 1.27:
+    if sec == "torso" and co.z > 1.27 and math.hypot(co.x, (co.y - 0.01) * 1.25) < 0.105:
         return "neck"          # upper chest shows through necklines: never hidden
     if sec == "shins" and co.z < 0.17:
         return "feet"          # ankles show below cuffs: never hidden
@@ -759,9 +798,15 @@ def build_underwear(body, face_sec, ws, rig, mat):
                 g = groups.get(b) or groups.setdefault(b, ob.vertex_groups.new(name=b))
                 g.add([i], w, "REPLACE")
         pieces.append(ob)
-    ob = join_skinned(pieces, "Underwear", rig)
-    ob["wardrobe_slot"] = "base"
-    return ob
+    out = {}
+    for ob, (name, *_r) in zip(pieces, bands):
+        ob.parent = rig
+        mod = ob.modifiers.new("Armature", "ARMATURE")
+        mod.object = rig
+        ob["wardrobe_slot"] = "body"
+        ob["body_section"] = "underwear_" + name
+        out["underwear_" + name] = ob
+    return out
 
 
 def split_body(body, face_sec):
@@ -866,6 +911,11 @@ def cut_faces(ob, kill_fn, snap_fn=None):
 
 
 def solidify(ob, thickness):
+    """Garments are single-layer cloth with double-sided materials: an inner shell
+    would poke through wherever fitting pulls the fabric in, and costs triangles."""
+    if thickness <= 0 or os.environ.get("CLOTH_SINGLE", "1") == "1":
+        shade_smooth(ob)
+        return
     so = ob.modifiers.new("Solidify", "SOLIDIFY")
     so.thickness = thickness
     so.offset = 1.0
@@ -1460,10 +1510,10 @@ def glb_to_embedded_gltf(glb_path, out_path):
 # --------------------------------------------------------------------------
 WARDROBE = [
     # object name, slot, label, body sections hidden while worn
-    ("Outfit_Sweater", "top", "Navy sweater", ["torso", "upperarms"]),
-    ("Outfit_TShirt", "top", "Lavender tee", ["torso"]),
-    ("Outfit_Joggers", "bottom", "Plaid joggers", ["pelvis", "thighs", "shins"]),
-    ("Outfit_Shorts", "bottom", "Plaid shorts", ["pelvis"]),
+    ("Outfit_Sweater", "top", "Navy sweater", ["torso", "upperarms", "underwear_top"]),
+    ("Outfit_TShirt", "top", "Lavender tee", ["torso", "underwear_top"]),
+    ("Outfit_Joggers", "bottom", "Plaid joggers", ["pelvis", "thighs", "shins", "underwear_briefs"]),
+    ("Outfit_Shorts", "bottom", "Plaid shorts", ["pelvis", "underwear_briefs"]),
 ]
 DEFAULT_OUTFIT = ["Outfit_Sweater", "Outfit_Joggers"]
 
@@ -1503,6 +1553,370 @@ def set_action(rig, name, frame):
     bpy.context.scene.frame_set(frame)
 
 
+def make_hull_hair(old_hair, head, body, mat, rig):
+    """Replace the procedural hair with the drawing's visual hull (see hair_hull.py)."""
+    import hair_hull as HH
+    import reference as REFV
+    views = REFV.load_views(include_mirror=True)
+    verts, faces = HH.build(views, [head, body], smooth=2.0, reveal_skin=True)
+    ob = mesh_obj("Hair", [tuple(v) for v in verts], [tuple(f) for f in faces], mat)
+    sm = ob.modifiers.new("Smooth", "SMOOTH")      # melt the voxel terraces
+    sm.factor = 0.7
+    sm.iterations = 12
+    bake(ob)
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(ob.data)
+    bm.free()
+    dec = ob.modifiers.new("Decimate", "DECIMATE")
+    dec.ratio = 0.3
+    bake(ob)
+    shade_smooth(ob)
+    for o in old_hair:
+        bpy.data.objects.remove(o)
+    skin_to(ob, rig, None, rigid="head")
+    ob["wardrobe_slot"] = "hair"
+    print(f"  hull hair: {len(ob.data.polygons)} faces")
+    return ob
+
+
+def make_hair_shell(hair, mat, voxel=0.0065):
+    """One smooth, watertight hair volume (cap + bun + locks) that the drawn strands are painted onto."""
+    parts = []
+    for o in hair:
+        c = o.copy()
+        c.data = o.data.copy()
+        link(c)
+        parts.append(c)
+    shell = join(parts, "Hair")
+    rm = shell.modifiers.new("Remesh", "REMESH")
+    rm.mode = "VOXEL"
+    rm.voxel_size = voxel
+    sm = shell.modifiers.new("Smooth", "SMOOTH")
+    sm.factor = 0.6
+    sm.iterations = 6
+    bake(shell)
+    dec = shell.modifiers.new("Decimate", "DECIMATE")
+    dec.ratio = 0.35
+    bake(shell)
+    shade_smooth(shell)
+    shell.data.materials.clear()
+    shell.data.materials.append(mat)
+    for o in hair:
+        bpy.data.objects.remove(o)
+    return shell
+
+
+def fit_to_reference(body, face_sec, items, head, ears, hair):
+    """Deform the default outfit, visible skin and hair so every reference view's outline matches."""
+    sys.path.insert(0, HERE)
+    import fit as F
+    import reference as REFV
+    views = REFV.load_views(include_mirror=True)
+    hidden = set()
+    for name, slot, label, hides in WARDROBE:
+        if name in DEFAULT_OUTFIT:
+            hidden.update(hides)
+    vis_face = [sec not in hidden and body.data.polygons[i].center.z < HEAD_C.z - 0.06
+                for i, sec in enumerate(face_sec)]
+    movable = np.zeros(len(body.data.vertices), bool)
+    for p in body.data.polygons:
+        if vis_face[p.index] and face_sec[p.index] not in ("hands", "feet") and p.center.z < HEAD_C.z - 0.10:
+            movable[list(p.vertices)] = True
+    C = REFV
+    g_skin = ((C.SKIN,), (C.HAIR, C.SHIRT, C.PANTS, C.STRING))
+    g_hair = ((C.HAIR,), ())
+    g_top = ((C.SHIRT,), (C.HAIR, C.STRING))
+    g_bottom = ((C.PANTS, C.STRING), (C.SHIRT,))
+    targets = [F.FitTarget(body, face_mask=vis_face, movable=movable, group=g_skin)]
+    targets += [F.FitTarget(items[DEFAULT_OUTFIT[0]], group=g_top), F.FitTarget(items[DEFAULT_OUTFIT[1]], group=g_bottom)]
+    if not head.get("from_drawing"):
+        targets += [F.FitTarget(head, group=g_skin)] + [F.FitTarget(e, group=g_skin) for e in ears]
+    targets += [F.FitTarget(h, mode="space", group=g_hair) for h in hair if h.name != "Hair" or "--shell-hair" in sys.argv]
+    ious = F.fit(targets, views, iterations=int(os.environ.get("FIT_ITERS", 10)))
+    print("FIT IoU", [round(x, 3) for x in ious])
+    if not head.get("from_drawing"):
+        symmetrize(head)
+
+
+def symmetrize(ob):
+    """Average every vertex with its mirror partner (the drawing's face is symmetric)."""
+    from mathutils.kdtree import KDTree
+    me = ob.data
+    kd = KDTree(len(me.vertices))
+    for v in me.vertices:
+        kd.insert(v.co, v.index)
+    kd.balance()
+    co = [v.co.copy() for v in me.vertices]
+    for v in me.vertices:
+        m = co[v.index].copy()
+        m.x = -m.x
+        _, j, d = kd.find(m)
+        if d < 0.01:
+            p = co[j]
+            v.co = Vector(((co[v.index].x - p.x) / 2, (co[v.index].y + p.y) / 2, (co[v.index].z + p.z) / 2))
+    me.update()
+
+
+def make_hull_extremities(body, face_sec, ws, rig, mat):
+    """Hands and feet as visual hulls of the drawn skin, each carved only from the views that see it."""
+    import hair_hull as HH
+    import reference as REFV
+    views = REFV.load_views(include_mirror=True)
+    out = []
+    for sx, s in ((1, "L"), (-1, "R")):
+        near = "side_mirror" if sx > 0 else "side"
+        lo, hi = sorted((sx * 0.15, sx * 0.33))
+        specs = [("Hand_" + s, ((lo, hi), (-0.13, 0.12), (0.60, 0.885)), {"forearms", "hands"}),
+                 ]
+        for name, box, secs in specs:
+            verts, faces = HH.build(views, [], voxel=0.0025, views_used=["front", "back", near], dilate=1,
+                                    box=box, classes=(REFV.SKIN,), keep_largest=True, smooth=1.6)
+            ob = mesh_obj(name, [tuple(v) for v in verts], [tuple(f) for f in faces], mat)
+            bm = bmesh.new()
+            bm.from_mesh(ob.data)
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            bm.to_mesh(ob.data)
+            bm.free()
+            dec = ob.modifiers.new("Decimate", "DECIMATE")
+            dec.ratio = 0.25
+            bake(ob)
+            shade_smooth(ob)
+            bind_garment(ob, rig, BodySampler(body, face_sec, ws, secs))
+            ob["wardrobe_slot"] = "base"
+            out.append(ob)
+            print(f"  {name}: {len(ob.data.polygons)} faces from the drawing's hull")
+    return out
+
+
+def paint_from_reference(body, face_sec, items, head, ears, hair, extremities=()):
+    """Bake the drawn views onto the default outfit, skin and hair as UV textures."""
+    import project as PJ
+    import reference as REFV
+    C = REFV
+    views = REFV.load_views(include_mirror=True)
+    hidden = set()
+    for name, slot, label, hides in WARDROBE:
+        if name in DEFAULT_OUTFIT:
+            hidden.update(hides)
+    top, bottom = items[DEFAULT_OUTFIT[0]], items[DEFAULT_OUTFIT[1]]
+    def occluders():
+        occ = []
+        for ob, faces in [(body, [sec not in hidden for sec in face_sec]), (top, None), (bottom, None), (head, None)] + \
+                [(e, None) for e in ears] + [(h, None) for h in hair] + [(x, None) for x in extremities]:
+            ob.data.update()
+            ob.data.calc_loop_triangles()
+            co = np.array([v.co[:] for v in ob.data.vertices])
+            idx = np.array([t.vertices[:] for t in ob.data.loop_triangles if faces is None or faces[t.polygon_index]])
+            occ.append(co[idx])
+        return np.concatenate(occ)
+    painter = PJ.Painter(views, occluders(),
+                         view_weights={"threequarter": 0.01, "back_threequarter": 0.01})
+    jobs = [(head, (C.SKIN, C.HAIR, C.STRING, C.SHIRT, C.PANTS), 1024), (body, (C.SKIN,), 1024), (top, (C.SHIRT,), 1024),
+            (bottom, (C.PANTS, C.STRING), 1024)] + [(e, (C.SKIN,), 256) for e in ears] + \
+           [(h, (C.HAIR,), 1024 if len(h.data.vertices) > 5000 else 512) for h in hair if not h.name.startswith("HairCards")] + \
+           [(x, (C.SKIN,), 512) for x in extremities]
+    grown = PJ.grow(head, painter, (C.HAIR,)) if "--shell-hair" in sys.argv else None
+    if grown is not None and hair:
+        g = grown.vertex_groups.new(name="head")
+        g.add(range(len(grown.data.vertices)), 1.0, "REPLACE")
+        shell = hair[0]
+        for o in bpy.context.view_layer.objects:
+            o.select_set(False)
+        shell.select_set(True)
+        grown.select_set(True)
+        bpy.context.view_layer.objects.active = shell
+        bpy.ops.object.join()
+        print(f"  grew hair over {len(shell.data.polygons)} faces total (drawn hair on head skin)")
+        painter.zb = {k: PJ.zbuffer(v, occluders()) for k, v in views.items()}
+    for rnd in range(10):   # peel layer by layer: a carved surface can reveal another behind it
+        n = sum(PJ.carve(h, painter, (C.SKIN,)) for h in hair)
+        painter.zb = {k: PJ.zbuffer(v, occluders()) for k, v in views.items()}
+        print(f"  carve pass {rnd}: removed {n} hair faces over drawn skin")
+        if n == 0:
+            break
+    if "--no-cards" not in sys.argv:
+        hair.extend(make_hair_cards(views, occluders(), head))
+    for ob, classes, size in jobs:
+        PJ.smart_uv(ob)
+        bias = {"side": 0.7, "side_mirror": 0.7, "threequarter": 0.75, "back_threequarter": 0.75} if ob is head else None
+        img, frac = painter.paint(ob, classes, size=size, sharp=40.0, bias=bias,
+                                  relaxed_classes=(C.SKIN,) if ob is head else None,
+                                  min_facing=0.25 if ob is head else (0.45 if ob in hair else 0.3))
+        PJ.assign_texture(ob, img, "paint_" + ob.name.lower(), OUT_TEX)
+        print(f"  painted {ob.name:18s} {size}px, {frac * 100:.0f}% of texels seen in the drawing")
+
+
+def make_hair_cards(views, model_tris, head):
+    """Alpha cards for the drawn flyaway strands (see cards.py)."""
+    import cards as CD
+    out = []
+    rig = head.parent
+    for k, verts, faces, uvs, path, npx in CD.cards(views, model_tris, OUT_TEX, np.array(HEAD_C[:])):
+        if not faces:
+            continue
+        ob = mesh_obj("HairCards_" + k, verts, faces, None, smooth=False)
+        uvl = ob.data.uv_layers.new(name="Paint")
+        for poly in ob.data.polygons:
+            for li in poly.loop_indices:
+                uvl.data[li].uv = uvs[ob.data.loops[li].vertex_index]
+        im = bpy.data.images.load(path)
+        im.pack()
+        m = bpy.data.materials.new("HairCards_" + k)
+        m.use_nodes = True
+        nt = m.node_tree
+        b = nt.nodes.get("Principled BSDF")
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = im
+        nt.links.new(tex.outputs["Color"], b.inputs["Base Color"])
+        nt.links.new(tex.outputs["Color"], b.inputs["Emission Color"])
+        # fade cards out as they turn edge-on (they are flat, drawn for one direction)
+        geo = nt.nodes.new("ShaderNodeNewGeometry")
+        dot = nt.nodes.new("ShaderNodeVectorMath")
+        dot.operation = "DOT_PRODUCT"
+        nt.links.new(geo.outputs["Normal"], dot.inputs[0])
+        nt.links.new(geo.outputs["Incoming"], dot.inputs[1])
+        ab = nt.nodes.new("ShaderNodeMath")
+        ab.operation = "ABSOLUTE"
+        nt.links.new(dot.outputs["Value"], ab.inputs[0])
+        mr = nt.nodes.new("ShaderNodeMapRange")
+        mr.inputs["From Min"].default_value = 0.80
+        mr.inputs["From Max"].default_value = 0.81
+        nt.links.new(ab.outputs["Value"], mr.inputs["Value"])
+        mul = nt.nodes.new("ShaderNodeMath")
+        mul.operation = "MULTIPLY"
+        nt.links.new(tex.outputs["Alpha"], mul.inputs[0])
+        nt.links.new(mr.outputs["Result"], mul.inputs[1])
+        cut = nt.nodes.new("ShaderNodeMath")          # alpha clip: no half-transparent ghosts
+        cut.operation = "GREATER_THAN"
+        cut.inputs[1].default_value = 0.5
+        nt.links.new(mul.outputs["Value"], cut.inputs[0])
+        nt.links.new(cut.outputs["Value"], b.inputs["Alpha"])
+        b.inputs["Emission Strength"].default_value = 0.0
+        b.inputs["Roughness"].default_value = 0.9
+        m["painted"] = True
+        m["cards"] = True
+        try:
+            m.surface_render_method = "DITHERED"
+        except Exception:
+            pass
+        ob.data.materials.append(m)
+        skin_to(ob, rig, None, rigid="head")
+        ob["wardrobe_slot"] = "hair"
+        out.append(ob)
+        print(f"  hair cards {k}: {len(faces)} cards, {npx} px of drawn wisps")
+    return out
+
+
+def painted_lighting():
+    """Render look: the painted colours (which already carry the artist's shading) plus a
+    soft real key and rim light on top, and the ink outline."""
+    set_paint_emission(0.82)
+    for m in bpy.data.materials:
+        if m.get("painted") or not m.use_nodes or m.name == "Ink":
+            continue
+        b = m.node_tree.nodes.get("Principled BSDF")
+        if b is None:
+            continue
+        src = b.inputs["Base Color"]
+        if src.links:
+            m.node_tree.links.new(src.links[0].from_socket, b.inputs["Emission Color"])
+        else:
+            b.inputs["Emission Color"].default_value = src.default_value
+        b.inputs["Emission Strength"].default_value = 0.6
+    for o in bpy.data.objects:
+        if o.type == "LIGHT":
+            o.data.energy = {"Key": 1.1, "Rim": 0.9}.get(o.name, o.data.energy)
+    bpy.context.scene.world.node_tree.nodes["Background"].inputs[1].default_value = 0.25
+    add_outlines()
+
+
+def set_paint_emission(strength):
+    for m in bpy.data.materials:
+        if m.get("painted"):
+            b = m.node_tree.nodes.get("Principled BSDF")
+            b.inputs["Emission Strength"].default_value = strength
+
+
+def add_outlines(thickness=0.0032, color="#2B1E22"):
+    """Ink outline for renders: an inflated, inside-out copy of each visible mesh whose
+    camera-facing side is transparent (the classic inverted-hull toon outline)."""
+    m = bpy.data.materials.get("Ink") or bpy.data.materials.new("Ink")
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    em = nt.nodes.new("ShaderNodeEmission")
+    em.inputs["Color"].default_value = srgb(color)
+    tr = nt.nodes.new("ShaderNodeBsdfTransparent")
+    nt.links.new(geo.outputs["Backfacing"], mix.inputs["Fac"])
+    nt.links.new(em.outputs["Emission"], mix.inputs[1])
+    nt.links.new(tr.outputs["BSDF"], mix.inputs[2])
+    nt.links.new(mix.outputs["Shader"], out.inputs["Surface"])
+    for ob in bpy.data.objects:
+        if ob.type != "MESH" or ob.name.startswith("Ink_"):
+            continue
+        if not any(mm and mm.get("painted") for mm in ob.data.materials) or ob.name.startswith("HairCards"):
+            continue
+        if "Ink" not in [mm.name for mm in ob.data.materials if mm]:
+            ob.data.materials.append(m)
+        so = ob.modifiers.get("InkOutline") or ob.modifiers.new("InkOutline", "SOLIDIFY")
+        so.thickness = thickness
+        so.offset = 1.0
+        so.use_flip_normals = True
+        so.use_rim = False
+        so.material_offset = len(ob.data.materials) - 1
+        so.show_viewport = True
+    bpy.context.scene.cycles.transparent_max_bounces = 16
+
+
+def render_match(prefix="match"):
+    """Render every reference view with a camera that matches it pixel for pixel."""
+    import reference as REFV
+    from PIL import Image
+    views = REFV.load_views(include_mirror=False)
+    sc = bpy.context.scene
+    cam = sc.camera
+    cam.data.type = "ORTHO"
+    out = []
+    for k, v in views.items():
+        sc.render.resolution_x, sc.render.resolution_y = v.w, v.h
+        cam.data.ortho_scale = max(v.w, v.h) * v.s
+        a = math.radians(v.az)
+        R_ = V(math.cos(a), math.sin(a), 0)
+        c = R_ * ((v.w / 2 - v.u0) * v.s) + V(0, 0, (v.floor - v.h / 2) * v.s)
+        cam.location = c + V(math.sin(a), -math.cos(a), 0) * 5
+        cam.rotation_euler = (math.pi / 2, 0, a)
+        p = os.path.join(OUT_RENDER, f"{prefix}_{k}.png")
+        sc.render.filepath = p
+        bpy.ops.render.render(write_still=True)
+        ren = Image.open(p).convert("RGBA")
+        ref = Image.fromarray(v.rgba)
+        bg = Image.new("RGBA", ren.size, (255, 255, 255, 255))
+        a_ = bg.copy()
+        a_.alpha_composite(ref)
+        b_ = bg.copy()
+        b_.alpha_composite(ren)
+        out.append((a_, b_))
+    W = sum(a_.width for a_, _ in out)
+    H = out[0][0].height
+    sheet = Image.new("RGB", (W, H * 2), (255, 255, 255))
+    x = 0
+    diffs = []
+    for a_, b_ in out:
+        sheet.paste(a_.convert("RGB"), (x, 0))
+        sheet.paste(b_.convert("RGB"), (x, H))
+        diffs.append(np.abs(np.asarray(a_, float)[:, :, :3] - np.asarray(b_, float)[:, :, :3]).mean())
+        x += a_.width
+    path = os.path.join(OUT_RENDER, f"{prefix}.png")
+    sheet.save(path)
+    print("MATCH mean abs diff per view:", [round(d, 1) for d in diffs])
+    return path
+
+
 def main():
     import json
     render = "--no-render" not in sys.argv
@@ -1520,9 +1934,15 @@ def main():
     m_string = material("Drawstring", COL["string"], rough=0.9)
 
     rig = build_armature()
-    head = build_head(m_face)
-    ears = build_ears(m_skin)
+    if "--old-head" in sys.argv:
+        head = build_head(m_face)
+        ears = build_ears(m_skin)
+    else:
+        head = build_head_from_drawing(m_skin)
+        ears = build_ears_from_drawing(m_skin)
     hair = build_hair(head, m_hair, m_hair_dark)
+    if "--shell-hair" in sys.argv:
+        hair = [make_hair_shell(hair, m_hair)]
     for o in [head] + ears + hair:
         skin_to(o, rig, None, rigid="head")
         o["wardrobe_slot"] = "hair" if o in hair else "head"
@@ -1547,8 +1967,20 @@ def main():
         ob["wardrobe_slot"] = slot
         ob["label"] = label
         ob["hides"] = ",".join(hides)
+    if "--strand-hair" not in sys.argv and "--shell-hair" not in sys.argv:
+        hair = [make_hull_hair(hair, head, body, m_hair, rig)]
+    if "--no-fit" not in sys.argv:
+        fit_to_reference(body, face_sec, items, head, ears, hair)
+    extremities = []
+    if "--no-hull-limbs" not in sys.argv:
+        extremities = make_hull_extremities(body, face_sec, ws, rig, m_skin)
+    if "--no-paint" not in sys.argv:
+        paint_from_reference(body, face_sec, items, head, ears, hair, extremities)
     sections = split_body(body, face_sec)
+    sections.update(under)
     bpy.data.objects.remove(body)
+    if extremities and "hands" in sections:     # the drawn hands replace the modelled ones
+        bpy.data.objects.remove(sections.pop("hands"))
     build_animations(rig)
     show_outfit(items, sections, DEFAULT_OUTFIT)
 
@@ -1556,7 +1988,7 @@ def main():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=blend)
 
-    base = [rig, head, under] + ears + hair + list(sections.values())
+    base = [rig, head] + ears + hair + extremities + list(sections.values())
     glb = os.path.join(OUT_EXPORT, "character.glb")
     export_selection(glb, base + list(items.values()), True)
     glb_to_embedded_gltf(glb, os.path.join(OUT_EXPORT, "character.gltf"))
@@ -1578,9 +2010,21 @@ def main():
     print(f"EXPORTED {glb} triangles={sum(tris.values())}")
     print({k: v for k, v in sorted(tris.items())})
 
+    if "--match" in sys.argv:
+        cam = setup_render()
+        rig.data.pose_position = "REST"
+        for L in [o for o in bpy.data.objects if o.type == "LIGHT"]:
+            L.hide_render = True
+        bpy.context.scene.world.node_tree.nodes["Background"].inputs[1].default_value = 0.0
+        set_paint_emission(1.0)
+        if "--no-outline" not in sys.argv:
+            add_outlines()
+        render_match()
+        return
     if render:
         cam = setup_render()
         rig.data.pose_position = "REST"
+        painted_lighting()
         paths = render_views(cam)
         compose_sheet(paths, os.path.join(OUT_RENDER, "turnaround.png"),
                       ref=os.path.join(ROOT, "reference", "turnaround.png"))

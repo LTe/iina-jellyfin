@@ -110,9 +110,9 @@
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">Character model · iteration v2 · modular wardrobe</div>
+    <div class="eyebrow">Character model · iteration v3 · matched to the sheet</div>
     <h1>Pajama Girl, in 3D</h1>
-    <p class="lede">A rigged, game-ready model of the character from your turnaround sheet. Clothes are now separate items on a full base body: each one is skinned to the same skeleton and weighted from the skin underneath, so it moves with the body and can be swapped. Pick an outfit, press Walk, and orbit around.</p>
+    <p class="lede">A rigged, game-ready model built from your turnaround sheet. Its shape is fitted to the drawn outlines in every view, the head is modelled from the drawn face profile, and the colours are painted straight from your art. Clothes are separate items on one skeleton. Orbit around, press Walk, or swap the outfit.</p>
     <div class="swatches" aria-label="Palette sampled from the reference">
       <span style="background:#2f3a6e" title="Shirt #2F3A6E"></span>
       <span style="background:#6f7bac" title="Pants #6F7BAC"></span>
@@ -154,7 +154,8 @@
       <div class="group">
         <div class="label">Shading</div>
         <div class="chips" role="group" aria-label="Shading">
-          <button class="chip" id="s-toon" data-shade="toon" aria-pressed="true">Toon</button>
+          <button class="chip" id="s-paint" data-shade="paint" aria-pressed="true">Painted</button>
+          <button class="chip" id="s-toon" data-shade="toon" aria-pressed="false">Toon</button>
           <button class="chip" id="s-pbr" data-shade="pbr" aria-pressed="false">PBR</button>
           <button class="chip" id="s-clay" data-shade="clay" aria-pressed="false">Clay</button>
         </div>
@@ -182,8 +183,21 @@
   </div>
 
   <section>
+    <h2>Model against the sheet, camera for camera</h2>
+    <p class="caption">Top row: your drawing. Bottom row: the model, rendered with cameras matched to each drawn view. The outline, face structure and colours all come from the sheet.</p>
+    <div class="shot"><img src="img/match.jpg" alt="Reference views above, matching renders of the 3D model below" loading="lazy"></div>
+  </section>
+
+  <section>
+    <h2>Angles the sheet never drew</h2>
+    <p class="caption">The real test of a 3D model: her left three-quarter, left profile and back three-quarter, plus close-ups of the head. The face is modelled from the drawn profile (brow, nose, lips, chin), so it holds up from the side.</p>
+    <div class="shot"><img src="img/inbetween_body.jpg" alt="Full-body renders from four angles between the drawn views" loading="lazy"></div>
+    <div class="shot"><img src="img/inbetween_head.jpg" alt="Head renders from four angles between the drawn views" loading="lazy"></div>
+  </section>
+
+  <section>
     <h2>One body, swappable clothes</h2>
-    <p class="caption">From left: the base body in plain underwear, sweater with joggers, tee with shorts, tee with joggers, sweater with shorts. Body parts fully covered by an item are switched off while it is worn, so skin can never poke through.</p>
+    <p class="caption">From left: base body, sweater with joggers, tee with shorts, tee with joggers, sweater with shorts. The sweater and joggers are painted from your sheet. The tee and shorts aren't in the sheet, so they still use flat colours, and the skin they reveal has no drawing to paint from yet.</p>
     <div class="shot"><img src="img/wardrobe.jpg" alt="The same character in five outfit combinations" loading="lazy"></div>
   </section>
 
@@ -194,15 +208,9 @@
   </section>
 
   <section>
-    <h2>Blender renders against the sheet</h2>
-    <p class="caption">Top row is your reference. Bottom row is the same five angles rendered in Cycles, orthographic, rest pose.</p>
+    <h2>Lit turnaround</h2>
+    <p class="caption">The painted colours with a soft key and rim light on top, the way it would look in a lit game scene.</p>
     <div class="shot"><img src="img/compare.jpg" alt="Reference turnaround above, Blender renders of the 3D model from the same five angles below" loading="lazy"></div>
-  </section>
-
-  <section>
-    <h2>Face and hair close-up</h2>
-    <p class="caption">The face (eyes, brows, lashes, blush and mouth) is a painted texture, which is the usual approach for stylized game characters. The nose, cheeks and chin are geometry.</p>
-    <div class="shot"><img src="img/closeups.jpg" alt="Close-up renders of the face from the front, three-quarter and side" loading="lazy"></div>
   </section>
 
   <div class="cols">
@@ -213,8 +221,9 @@
         <li><span class="tag ok">fit</span>Each garment is built from the body's skeleton with ease added, cut to length, then pushed 6&nbsp;mm outside the skin wherever it would sit inside.</li>
         <li><span class="tag ok">bind</span>Garment weights are copied from the nearest body surface: sleeves only from the arms, pants only from the pelvis and legs, so the fabric bends like the skin.</li>
         <li><span class="tag ok">hide</span>Each item lists the body parts it covers completely. The sweater hides the torso and upper arms, and the joggers hide the pelvis, thighs and shins.</li>
-        <li><span class="tag next">rough</span>Small corners remain where the sleeves meet the neckline.</li>
-        <li><span class="tag next">next</span>Cloth physics for the loose hem and cuffs, and hair as its own slot.</li>
+        <li><span class="tag ok">match</span>Shape fitted to the drawn outlines (93% overlap per view), head modelled from the drawn profile, hair as the drawing's volume plus alpha cards for flyaway strands, colours projected from the art.</li>
+        <li><span class="tag next">rough</span>Hair edges and the jaw line still show small artefacts, and the hands are simplified.</li>
+        <li><span class="tag next">next</span>Paint the tee and shorts in the same style, and add cloth physics for the loose hem.</li>
       </ul>
     </div>
     <div class="card">
@@ -322,13 +331,39 @@ function buildWardrobeUI() {
   }
 }
 const meshes = [];
-const state = { shade: "toon", wire: false };
+const state = { shade: "paint", wire: false };
+
+// hair cards are flat and drawn for one direction: hide them when seen edge-on
+function cardFade(mat) {
+  mat.userData.outlineParameters = { visible: false };
+  mat.onBeforeCompile = sh => {
+    sh.fragmentShader = sh.fragmentShader.replace("#include <alphatest_fragment>",
+      "#include <alphatest_fragment>\n if (abs(dot(normalize(vNormal), normalize(vViewPosition))) < 0.8) discard;");
+  };
+}
 
 function applyShading() {
   for (const m of meshes) {
     const src = m.userData.pbr;
     let mat;
-    if (state.shade === "pbr") mat = src;
+    if (state.shade === "paint") {
+      // the texture already holds the artist's shading: mostly unlit, with a little real light on top
+      mat = m.userData.paint ||= (() => {
+        const base = src.color ? src.color.clone() : new THREE.Color(1, 1, 1);
+        const pm = new THREE.MeshLambertMaterial({
+          map: src.map || null,
+          color: base.clone().multiplyScalar(0.32),
+          emissive: src.map ? new THREE.Color(1, 1, 1) : base,
+          emissiveMap: src.map || null,
+          emissiveIntensity: 0.8,
+          side: THREE.DoubleSide,
+          transparent: false,
+          alphaTest: m.userData.card ? 0.5 : 0,
+        });
+        if (m.userData.card) cardFade(pm);
+        return pm;
+      })();
+    } else if (state.shade === "pbr") mat = src;
     else if (state.shade === "toon") {
       mat = m.userData.toon ||= new THREE.MeshToonMaterial({ color: src.color, map: src.map, gradientMap: toonRamp });
     } else {
@@ -381,6 +416,7 @@ load().then(gltf => {
     if (o.isMesh) {
       meshes.push(o);
       o.userData.pbr = o.material;
+      let n = o; while (n) { if (/HairCards/.test(n.name)) o.userData.card = true; n = n.parent; }
       if (o.material.map) tex.add(o.material.map.uuid);
       tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
     }
