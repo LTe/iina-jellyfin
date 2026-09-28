@@ -2,7 +2,21 @@
 
 A rigged, game-ready 3D model of the character in `reference/turnaround.png`, generated procedurally with Blender's Python API.
 
-## v2: built from anatomy (current)
+## v3: AI shape painted with the original art (current)
+
+```sh
+pip install gradio_client
+cd character/ai && python3 run_hy.py mv2 /shape_generation tencent/Hunyuan3D-2mv   # free HF Space, 4 views
+python3 character/ai/texture_hy.py -- character/ai/hy_mv2_shape_generation_0.glb character/ai/character_ai.glb
+python3 character/ai/rig_ai.py -- character/ai/character_ai.glb character/export/character.glb
+```
+
+- **Shape:** Hunyuan3D-2mv (open source, running on a free Hugging Face Space) generates the mesh from the front, back and both side views of the sheet.
+- **Texture:** `texture_hy.py` aligns the mesh to the calibrated views (85–88% silhouette overlap) and paints it by projecting the drawing. The head is painted from the front view only, so there is one face.
+- **Rig:** `rig_ai.py` copies weights from the anatomical v2 body (Data Transfer), limits each part to the bones that should move it, splits the mesh into Hair, Body, Sweater and Joggers by painted colour, and adds the Idle and Walk clips.
+- **Known limit:** the generated mesh fuses the hands to the hips, so arm swing is kept small.
+
+## v2: built from anatomy
 
 ```sh
 python3 character/blender/build_v2.py

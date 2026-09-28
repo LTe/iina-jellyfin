@@ -110,9 +110,9 @@
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">Character model · v2 · rebuilt from anatomy</div>
+    <div class="eyebrow">Character model · v3 · AI shape + your painting</div>
     <h1>Pajama Girl, in 3D</h1>
-    <p class="lede">Started over from anatomy. The body follows real female landmarks (crotch at half height, elbows at the waist, hips as wide as the shoulders), with the anime changes applied on purpose: a larger head, a thin long neck, slim limbs, and big, low-set eyes with a tiny nose and mouth. Clothes and hair are separate meshes built from the same skeleton, so they fit and bend with the body.</p>
+    <p class="lede">The shape comes from Hunyuan3D-2mv, a free open-source image-to-3D model on Hugging Face, fed the front, back and both side views of your sheet. It is aligned to the drawing and painted with your art projected onto it, then rigged with the anatomical skeleton and split into hair, skin, sweater and joggers. Orbit around, press Walk, or hide parts.</p>
     <div class="swatches" aria-label="Palette sampled from the reference">
       <span style="background:#2f3a6e" title="Shirt #2F3A6E"></span>
       <span style="background:#6f7bac" title="Pants #6F7BAC"></span>
@@ -158,13 +158,14 @@
       <div class="group">
         <div class="label">Shading</div>
         <div class="chips" role="group" aria-label="Shading">
-          <button class="chip" id="s-toon" data-shade="toon" aria-pressed="true">Toon</button>
+          <button class="chip" id="s-toon" data-shade="toon" aria-pressed="false">Toon</button>
+          <button class="chip" id="s-paint" data-shade="paint" aria-pressed="true">Painted</button>
           <button class="chip" id="s-pbr" data-shade="pbr" aria-pressed="false">PBR</button>
           <button class="chip" id="s-clay" data-shade="clay" aria-pressed="false">Clay</button>
         </div>
       </div>
       <div class="group">
-        <label class="toggle" for="t-outline">Ink outline <input type="checkbox" id="t-outline" checked></label>
+        <label class="toggle" for="t-outline">Ink outline <input type="checkbox" id="t-outline"></label>
         <label class="toggle" for="t-wire">Wireframe <input type="checkbox" id="t-wire"></label>
         <label class="toggle" for="t-spin">Turntable <input type="checkbox" id="t-spin"></label>
         <label class="toggle" for="t-bones">Show skeleton <input type="checkbox" id="t-bones"></label>
@@ -187,13 +188,13 @@
 
   <section>
     <h2>Against the sheet</h2>
-    <p class="caption">Top: your drawing. Bottom: the model in EEVEE with cel shading and ink outlines, from the same five angles.</p>
+    <p class="caption">Top: your drawing. Bottom: the 3D model from the same five angles.</p>
     <div class="shot"><img src="img/compare.jpg" alt="Reference turnaround above, toon renders of the model below" loading="lazy"></div>
   </section>
 
   <section>
-    <h2>Head, and the bare base body</h2>
-    <p class="caption">The head from four angles, then the base body without clothes or hair: this is what the clothes are built around.</p>
+    <h2>Head, and the raw generated shape</h2>
+    <p class="caption">The painted head from four angles, then the untextured shape Hunyuan3D generated from your four views (two runs).</p>
     <div class="shot"><img src="img/inbetween_head.jpg" alt="Head renders from five angles" loading="lazy"></div>
     <div class="shot"><img src="img/inbetween_body.jpg" alt="Full-body renders from four angles between the drawn views" loading="lazy"></div>
   </section>
@@ -323,7 +324,7 @@ function buildWardrobeUI() {
   }
 }
 const meshes = [];
-const state = { shade: "toon", wire: false };
+const state = { shade: "paint", wire: false };
 
 // hair cards are flat and drawn for one direction: hide them when seen edge-on
 function cardFade(mat) {

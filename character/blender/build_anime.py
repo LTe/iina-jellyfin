@@ -656,6 +656,9 @@ def smooth01(x):
     return 0.5 - 0.5 * math.cos(x)
 
 
+ARM_SWING = 0.30
+
+
 def build_clips(rig, fps=30):
     """Idle (3 s) and Walk (1.1 s). Every frame is keyed with LINEAR interpolation and the last
     key equals the first, so playback has constant speed through the loop point (Bezier keys
@@ -710,7 +713,7 @@ def build_clips(rig, fps=30):
             push = ((1 - math.sin(p)) / 2) ** 4                 # push-off when the leg is behind
             r[f"foot.{side}"] = (0.10 * sw - 0.30 * swing + 0.20 * push, 0.0, 0.0)
             r[f"toe.{side}"] = (-0.35 * push, 0.0, 0.0)
-            r[f"upper_arm.{side}"] = (0.30 * sw, 0.0, 0.0)       # arms swing against the legs
+            r[f"upper_arm.{side}"] = (ARM_SWING * sw, 0.0, 0.0)  # arms swing against the legs
             r[f"forearm.{side}"] = (0.22 + 0.12 * smooth01(p), 0.0, 0.0)
         r["spine"] = (0.04, 0.05 * math.sin(ph), 0.0)
         r["chest"] = (0.0, -0.09 * math.sin(ph), 0.015 * math.sin(2 * ph))

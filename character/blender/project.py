@@ -225,7 +225,7 @@ class Painter:
         return img, frac
 
 
-def fill(img, known, covered, fallback, iters=6):
+def fill(img, known, covered, fallback, iters=24):
     """Push colours from painted texels into unpainted ones (and a margin around islands)."""
     img = img.copy()
     k = known.astype(float)
