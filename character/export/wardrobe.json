@@ -1,0 +1,81 @@
+{
+  "skeleton": [
+    "hips",
+    "spine",
+    "chest",
+    "neck",
+    "head",
+    "shoulder.L",
+    "upper_arm.L",
+    "forearm.L",
+    "hand.L",
+    "thigh.L",
+    "shin.L",
+    "foot.L",
+    "toe.L",
+    "shoulder.R",
+    "upper_arm.R",
+    "forearm.R",
+    "hand.R",
+    "thigh.R",
+    "shin.R",
+    "foot.R",
+    "toe.R"
+  ],
+  "body_sections": [
+    "feet",
+    "forearms",
+    "hands",
+    "neck",
+    "pelvis",
+    "shins",
+    "thighs",
+    "torso",
+    "upperarms"
+  ],
+  "default_outfit": [
+    "Outfit_Sweater",
+    "Outfit_Joggers"
+  ],
+  "items": [
+    {
+      "node": "Outfit_Sweater",
+      "slot": "top",
+      "label": "Navy sweater",
+      "hides": [
+        "torso",
+        "upperarms"
+      ],
+      "file": "parts/sweater.glb"
+    },
+    {
+      "node": "Outfit_TShirt",
+      "slot": "top",
+      "label": "Lavender tee",
+      "hides": [
+        "torso"
+      ],
+      "file": "parts/tshirt.glb"
+    },
+    {
+      "node": "Outfit_Joggers",
+      "slot": "bottom",
+      "label": "Plaid joggers",
+      "hides": [
+        "pelvis",
+        "thighs",
+        "shins"
+      ],
+      "file": "parts/joggers.glb"
+    },
+    {
+      "node": "Outfit_Shorts",
+      "slot": "bottom",
+      "label": "Plaid shorts",
+      "hides": [
+        "pelvis"
+      ],
+      "file": "parts/shorts.glb"
+    }
+  ]
+}

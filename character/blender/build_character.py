@@ -47,6 +47,8 @@ COL = {
     "lip": "#B8615A",
     "blush": "#EE8C7C",
     "nail": "#EFB79A",
+    "underwear": "#D8CFC6",
+    "tee": "#CFC8E2",
 }
 
 
@@ -488,31 +490,6 @@ def build_ears(mat):
     return objs
 
 
-def build_body_skin(mat, shirt_mat=None):
-    """Neck + upper chest skin (only visible at the neckline)."""
-    n = [
-        (V(0, -0.005, 1.17), (0.140, 0.105)),
-        (V(0, 0.002, 1.27), (0.125, 0.082)),
-        (V(0, 0.010, 1.34), (0.068, 0.060)),
-        (V(0, 0.014, 1.46), (0.054, 0.052)),
-        (V(0.14, 0.008, 1.265), (0.048, 0.048)),
-        (V(-0.14, 0.008, 1.265), (0.048, 0.048)),
-    ]
-    e = [(0, 1), (1, 2), (2, 3), (1, 4), (1, 5)]
-    ob = skin_mesh("BodySkin", n, e, mat=mat)
-    if shirt_mat is not None:
-        # below the neckline the body is never meant to show: colour it like the
-        # shirt so seams between torso and sleeves never reveal skin
-        ob.data.materials.append(shirt_mat)
-        for poly in ob.data.polygons:
-            c = poly.center
-            r_neck = math.hypot(c.x, (c.y - 0.01) * 1.25)
-            front = max(0.0, -(c.y - 0.01) / max(r_neck, 1e-4))
-            if c.z < 1.345 - 0.050 * front ** 1.5 - 0.012 or r_neck > 0.112:
-                poly.material_index = 1
-    return ob
-
-
 def arm_nodes(sx):
     return {
         "shoulder": V(sx * 0.165, 0.012, 1.245),
@@ -538,102 +515,6 @@ def join(objs, name):
     for m in mats:
         me.materials.append(m)
     shade_smooth(ob)
-    return ob
-
-
-def build_shirt(mat):
-    torso = skin_mesh("ShirtTorso", [
-        (V(0, 0.002, 0.860), (0.188, 0.136)),   # hem (cut at 0.928)
-        (V(0, -0.004, 1.030), (0.178, 0.128)),  # belly
-        (V(0, -0.010, 1.160), (0.165, 0.124)),  # chest
-        (V(0, 0.002, 1.245), (0.128, 0.094)),   # upper chest
-        (V(0, 0.010, 1.345), (0.074, 0.066)),   # neck (cut away)
-    ], [(0, 1), (1, 2), (2, 3), (3, 4)], subdiv=2)
-    bm = bmesh.new()
-    bm.from_mesh(torso.data)
-    kill = []
-    for f in bm.faces:
-        c = f.calc_center_median()
-        r_neck = math.hypot(c.x, (c.y - 0.01) * 1.25)
-        front = max(0.0, -(c.y - 0.01) / max(r_neck, 1e-4))
-        zcut = 1.345 - 0.050 * front ** 1.5
-        if (c.z > zcut and r_neck < 0.108) or c.z < 0.928:
-            kill.append(f)
-    bmesh.ops.delete(bm, geom=kill, context="FACES")
-    for v in bm.verts:   # snap the cut edges onto smooth curves
-        if v.is_boundary:
-            if v.co.z < 1.0:
-                v.co.z = 0.928
-            else:
-                r_neck = math.hypot(v.co.x, (v.co.y - 0.01) * 1.25)
-                front = max(0.0, -(v.co.y - 0.01) / max(r_neck, 1e-4))
-                v.co.z = 0.5 * v.co.z + 0.5 * (1.345 - 0.050 * front ** 1.5)
-    bm.to_mesh(torso.data)
-    bm.free()
-    parts = [torso]
-    for sx in (1, -1):
-        a = arm_nodes(sx)
-        sl = skin_mesh("Sleeve", [
-            (V(sx * 0.068, 0.008, 1.298), (0.048, 0.046)),   # starts inside the torso
-            (a["shoulder"], (0.056, 0.056)),
-            (a["elbow"], (0.050, 0.050)),
-            (a["elbow"].lerp(a["cuff"], 0.55) + V(sx * 0.003, 0, 0), (0.054, 0.054)),  # bunch
-            (a["cuff"], (0.050, 0.050)),
-            (a["cuff"] - V(0, 0, 0.050), (0.046, 0.046)),
-        ], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)], subdiv=2)
-        bm = bmesh.new()
-        bm.from_mesh(sl.data)
-        kill = [f for f in bm.faces if f.calc_center_median().z < a["cuff"].z - 0.008]
-        bmesh.ops.delete(bm, geom=kill, context="FACES")
-        for v in bm.verts:
-            if v.is_boundary:
-                v.co.z = a["cuff"].z - 0.008
-        bm.to_mesh(sl.data)
-        bm.free()
-        parts.append(sl)
-    for o in parts:
-        so = o.modifiers.new("Solidify", "SOLIDIFY")
-        so.thickness = 0.006
-        so.offset = 1.0
-        bake(o)
-    ob = join(parts, "Shirt")
-    ob.data.materials.append(mat)
-    return ob
-
-
-def build_pants(mat):
-    n = [
-        (V(0, 0.004, 0.975), (0.138, 0.104)),    # 0 waist
-        (V(0, 0.012, 0.870), (0.146, 0.114)),    # 1 hips
-    ]
-    e = [(0, 1)]
-    for sx in (1, -1):
-        i = len(n)
-        n += [
-            (V(sx * 0.082, 0.010, 0.770), (0.086, 0.104)),
-            (V(sx * 0.100, 0.004, 0.510), (0.070, 0.078)),
-            (V(sx * 0.114, 0.012, 0.260), (0.066, 0.072)),
-            (V(sx * 0.121, 0.018, 0.165), (0.076, 0.078)),  # cuff bunch
-            (V(sx * 0.124, 0.022, 0.115), (0.070, 0.074)),
-            (V(sx * 0.124, 0.022, 0.085), (0.060, 0.064)),  # cuff (cut)
-        ]
-        e += [(1, i), (i, i + 1), (i + 1, i + 2), (i + 2, i + 3), (i + 3, i + 4), (i + 4, i + 5)]
-    ob = skin_mesh("Pants", n, e, subdiv=2, mat=mat)
-    bm = bmesh.new()
-    bm.from_mesh(ob.data)
-    kill = [f for f in bm.faces if f.calc_center_median().z < 0.092]
-    bmesh.ops.delete(bm, geom=kill, context="FACES")
-    for v in bm.verts:
-        if v.is_boundary:
-            v.co.z = 0.092
-    bm.to_mesh(ob.data)
-    bm.free()
-    so = ob.modifiers.new("Solidify", "SOLIDIFY")
-    so.thickness = 0.005
-    so.offset = 1.0
-    bake(ob)
-    shade_smooth(ob)
-    cylinder_uv(ob, 0.80)
     return ob
 
 
@@ -669,76 +550,461 @@ def cylinder_uv(ob, split_z, tile=0.105):
             uv.data[li].uv = (ang * r / tile / 4, z / tile / 4)
 
 
-def build_hands(mat):
-    objs = []
+# --------------------------------------------------------------------------
+# Base body: one continuous skinned mesh (neck to toes) wearing plain underwear.
+# Every garment is fitted to and weighted from this body.
+# --------------------------------------------------------------------------
+def hand_tree(sx, n, e, wrist_i):
+    """Append palm, fingers and thumb nodes to (n, e), attached at node `wrist_i`."""
+    a = arm_nodes(sx)
+    w, k = a["wrist"], a["knuckle"]
+    palm = w.lerp(k, 0.5)
+    ip = len(n)
+    n += [(palm, (0.021, 0.038)), (k, (0.017, 0.038))]
+    e += [(wrist_i, ip), (ip, ip + 1)]
+    # fingers spread front-to-back along Y, curl toward the thigh (-sx)
+    fingers = [(-0.027, 0.080, 0.0085), (-0.009, 0.088, 0.0087), (0.009, 0.083, 0.0083), (0.027, 0.068, 0.0075)]
+    for fy, ln, r in fingers:
+        base = k + V(0, fy, 0.004)
+        i = len(n)
+        p1 = base + V(-sx * 0.004, 0, -ln * 0.40)
+        p2 = p1 + V(-sx * 0.007, 0, -ln * 0.32)
+        p3 = p2 + V(-sx * 0.009, 0, -ln * 0.25)
+        n += [(base, (r * 1.1, r * 1.1)), (p1, (r, r)), (p2, (r * 0.92, r * 0.92)), (p3, (r * 0.8, r * 0.8))]
+        e += [(ip + 1, i), (i, i + 1), (i + 1, i + 2), (i + 2, i + 3)]
+    i = len(n)
+    t0 = palm + V(-sx * 0.006, -0.026, 0.012)
+    t1 = t0 + V(-sx * 0.006, -0.014, -0.024)
+    t2 = t1 + V(-sx * 0.006, -0.006, -0.024)
+    n += [(t0, (0.011, 0.011)), (t1, (0.0088, 0.0088)), (t2, (0.0075, 0.0075))]
+    e += [(ip, i), (i, i + 1), (i + 1, i + 2)]
+
+
+def foot_frame(sx):
+    ax = sx * 0.124
+    yaw = Matrix.Rotation(-sx * 0.12, 4, "Z")   # toes slightly outward
+
+    def F(x, y, z):
+        p = yaw @ Vector((x * sx * 1.12, y * 1.12, z))
+        return V(ax + p.x, 0.030 + p.y, z)
+    return F
+
+
+def foot_tree(sx, n, e, ankle_i):
+    F = foot_frame(sx)
+    i = len(n)
+    n += [
+        (F(0, 0.030, 0.034), (0.034, 0.030)),       # heel
+        (F(0.002, -0.040, 0.034), (0.040, 0.026)),  # midfoot
+        (F(0.004, -0.105, 0.022), (0.046, 0.020)),  # ball
+    ]
+    e += [(ankle_i, i), (ankle_i, i + 1), (i + 1, i + 2)]
+    ball = i + 2
+    toes = [(-0.026, 0.036, 0.0115), (-0.009, 0.030, 0.0088), (0.005, 0.027, 0.0082),
+            (0.018, 0.024, 0.0076), (0.030, 0.019, 0.0070)]
+    for tx, ln, r in toes:
+        j = len(n)
+        n += [(F(tx, -0.118, 0.020), (r * 1.15, r)), (F(tx * 1.08, -0.118 - ln, 0.014), (r, r * 0.9))]
+        e += [(ball, j), (j, j + 1)]
+
+
+def build_body(m_skin, m_under):
+    n = [
+        (V(0, 0.014, 0.860), (0.134, 0.100)),   # 0 pelvis (root)
+        (V(0, 0.006, 0.990), (0.110, 0.082)),   # 1 waist
+        (V(0, -0.004, 1.130), (0.126, 0.098)),  # 2 chest
+        (V(0, 0.004, 1.245), (0.116, 0.080)),   # 3 upper chest
+        (V(0, 0.012, 1.340), (0.064, 0.058)),   # 4 neck base
+        (V(0, 0.014, 1.460), (0.054, 0.052)),   # 5 neck top (inside the head)
+    ]
+    e = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]
     for sx in (1, -1):
         a = arm_nodes(sx)
-        w, k = a["wrist"], a["knuckle"]
-        palm = w.lerp(k, 0.5)
-        n = [
-            (a["cuff"] + V(0, 0.004, 0.03), (0.038, 0.038)),   # 0 forearm inside sleeve
-            (w + V(0, 0, 0.04), (0.032, 0.034)),                # 1
-            (w, (0.024, 0.031)),                               # 2 wrist
-            (palm, (0.021, 0.038)),                            # 3 palm
-            (k, (0.017, 0.038)),                               # 4 knuckles
-        ]
-        e = [(0, 1), (1, 2), (2, 3), (3, 4)]
-        # fingers spread front-to-back along Y, curl toward the thigh (-sx)
-        fingers = [(-0.027, 0.080, 0.0085), (-0.009, 0.088, 0.0087), (0.009, 0.083, 0.0083), (0.027, 0.068, 0.0075)]
-        for fy, ln, r in fingers:
-            base = k + V(0, fy, 0.004)
-            i = len(n)
-            p1 = base + V(-sx * 0.004, 0, -ln * 0.40)
-            p2 = p1 + V(-sx * 0.007, 0, -ln * 0.32)
-            p3 = p2 + V(-sx * 0.009, 0, -ln * 0.25)
-            n += [(base, (r * 1.1, r * 1.1)), (p1, (r, r)), (p2, (r * 0.92, r * 0.92)), (p3, (r * 0.8, r * 0.8))]
-            e += [(4, i), (i, i + 1), (i + 1, i + 2), (i + 2, i + 3)]
-        # thumb (forward, -Y)
         i = len(n)
-        t0 = palm + V(-sx * 0.006, -0.026, 0.012)
-        t1 = t0 + V(-sx * 0.006, -0.014, -0.024)
-        t2 = t1 + V(-sx * 0.006, -0.006, -0.024)
-        n += [(t0, (0.011, 0.011)), (t1, (0.0088, 0.0088)), (t2, (0.0075, 0.0075))]
-        e += [(3, i), (i, i + 1), (i + 1, i + 2)]
-        ob = skin_mesh("Hand_L" if sx > 0 else "Hand_R", n, e, subdiv=2, mat=mat)
-        objs.append(ob)
-    return objs
-
-
-def build_feet(mat):
-    objs = []
-    for sx in (1, -1):
-        ax = sx * 0.124
-        yaw = Matrix.Rotation(-sx * 0.12, 4, "Z")   # toes slightly outward
-
-        def F(x, y, z):
-            p = yaw @ Vector((x * sx * 1.12, y * 1.12, z))
-            return V(ax + p.x, 0.030 + p.y, z)
-
-        n = [
-            (F(0, 0, 0.170), (0.034, 0.036)),     # 0 shin (inside pants)
-            (F(0, 0, 0.075), (0.033, 0.036)),     # 1 ankle
-            (F(0, 0.030, 0.034), (0.034, 0.030)),  # 2 heel
-            (F(0.002, -0.040, 0.034), (0.040, 0.026)),  # 3 midfoot
-            (F(0.004, -0.105, 0.022), (0.046, 0.020)),  # 4 ball
+        n += [
+            (a["shoulder"], (0.044, 0.046)),
+            (a["shoulder"].lerp(a["elbow"], 0.5), (0.038, 0.040)),
+            (a["elbow"], (0.032, 0.034)),
+            (a["elbow"].lerp(a["wrist"], 0.4), (0.033, 0.034)),
+            (a["wrist"], (0.024, 0.031)),
         ]
-        e = [(0, 1), (1, 2), (1, 3), (3, 4)]
-        toes = [(-0.026, 0.036, 0.0115), (-0.009, 0.030, 0.0088), (0.005, 0.027, 0.0082),
-                (0.018, 0.024, 0.0076), (0.030, 0.019, 0.0070)]
-        for tx, ln, r in toes:
-            i = len(n)
-            b = F(tx, -0.118, 0.020)
-            t = F(tx * 1.08, -0.118 - ln, 0.014)
-            n += [(b, (r * 1.15, r)), (t, (r, r * 0.9))]
-            e += [(4, i), (i, i + 1)]
-        ob = skin_mesh("Foot_L" if sx > 0 else "Foot_R", n, e, subdiv=2, mat=mat)
-        # flatten the sole
-        for v in ob.data.vertices:
-            if v.co.z < 0.004:
-                v.co.z = 0.004 + (v.co.z - 0.004) * 0.15
-        objs.append(ob)
-    return objs
+        e += [(3, i), (i, i + 1), (i + 1, i + 2), (i + 2, i + 3), (i + 3, i + 4)]
+        hand_tree(sx, n, e, i + 4)
+        i = len(n)
+        F = foot_frame(sx)
+        n += [
+            (V(sx * 0.082, 0.014, 0.790), (0.078, 0.086)),   # hip / upper thigh
+            (V(sx * 0.093, 0.008, 0.640), (0.064, 0.070)),
+            (V(sx * 0.100, 0.004, 0.505), (0.050, 0.054)),   # knee
+            (V(sx * 0.110, 0.018, 0.360), (0.050, 0.054)),   # calf
+            (V(sx * 0.118, 0.026, 0.190), (0.036, 0.038)),
+            (F(0, 0, 0.075), (0.033, 0.036)),                # ankle
+        ]
+        e += [(0, i), (i, i + 1), (i + 1, i + 2), (i + 2, i + 3), (i + 3, i + 4), (i + 4, i + 5)]
+        foot_tree(sx, n, e, i + 5)
+    ob = skin_mesh("Body", n, e, subdiv=2, mat=m_skin)
+    for v in ob.data.vertices:   # flatten the soles
+        if v.co.z < 0.004:
+            v.co.z = 0.004 + (v.co.z - 0.004) * 0.15
+    return ob
 
+
+def weights_of(ob):
+    names = {g.index: g.name for g in ob.vertex_groups}
+    return [{names[g.group]: g.weight for g in v.groups if g.weight > 1e-4} for v in ob.data.vertices]
+
+
+def dominant(ws):
+    return max(ws.items(), key=lambda kv: kv[1])[0] if ws else "hips"
+
+
+def rig_body(body, rig):
+    """Bone-heat (automatic) weights, falling back to distance weights for any vertex heat missed."""
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    body.select_set(True)
+    rig.select_set(True)
+    bpy.context.view_layer.objects.active = rig
+    try:
+        bpy.ops.object.parent_set(type="ARMATURE_AUTO")
+    except Exception as ex:   # pragma: no cover - depends on Blender build
+        print("bone heat failed:", ex)
+    if not any(m.type == "ARMATURE" for m in body.modifiers):
+        m = body.modifiers.new("Armature", "ARMATURE")
+        m.object = rig
+        body.parent = rig
+    ws = weights_of(body)
+    segs = [(name, h, t) for name, h, t, _ in BONES]
+    missing = 0
+    for v, w in zip(body.data.vertices, ws):
+        if sum(w.values()) > 0.05:
+            continue
+        missing += 1
+        best = sorted(((1 / (seg_dist(v.co, h, t) + 0.01) ** 6, nm) for nm, h, t in segs), reverse=True)[:2]
+        tot = sum(x for x, _ in best)
+        for x, nm in best:
+            g = body.vertex_groups.get(nm) or body.vertex_groups.new(name=nm)
+            g.add([v.index], x / tot, "REPLACE")
+    print(f"body weights: {missing} vertices needed the distance fallback")
+
+
+# Body sections a garment can hide while worn (saves fill-rate and stops poke-through)
+SECTION_OF_BONE = {
+    "hips": "pelvis", "spine": "torso", "chest": "torso", "neck": "neck", "head": "neck",
+    "shoulder": "torso", "upper_arm": "upperarms", "forearm": "forearms", "hand": "hands",
+    "thigh": "thighs", "shin": "shins", "foot": "feet", "toe": "feet",
+}
+
+
+def section_of(co, bone):
+    sec = SECTION_OF_BONE[bone.split(".")[0]]
+    if sec == "torso" and co.z > 1.27:
+        return "neck"          # upper chest shows through necklines: never hidden
+    if sec == "shins" and co.z < 0.17:
+        return "feet"          # ankles show below cuffs: never hidden
+    return sec
+
+
+def classify_body(body):
+    ws = weights_of(body)
+    me = body.data
+    face_sec, face_bone = [], []
+    for p in me.polygons:
+        tally = {}
+        for vi in p.vertices:
+            b = dominant(ws[vi])
+            tally[b] = tally.get(b, 0) + 1
+        b = max(tally.items(), key=lambda kv: kv[1])[0]
+        face_bone.append(b)
+        face_sec.append(section_of(p.center, b))
+        # plain underwear: a sports-top band and briefs
+        c = p.center
+        base = b.split(".")[0]
+    return face_sec, face_bone, ws
+
+
+def build_underwear(body, face_sec, ws, rig, mat):
+    """Plain sports top and briefs: copies of the body surface between clean cut lines,
+    lifted slightly off the skin. They carry the body's own weights."""
+    me = body.data
+    bands = [("top", {"torso", "neck"}, 1.090, 1.232), ("briefs", {"pelvis", "thighs", "torso"}, 0.772, 0.912)]
+    pieces = []
+    for name, secs, z0, z1 in bands:
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        orig = bm.verts.layers.int.new("orig")
+        for v in bm.verts:
+            v[orig] = v.index
+        bm.faces.ensure_lookup_table()
+        kill = [f for f in bm.faces
+                if not (face_sec[f.index] in secs and z0 < f.calc_center_median().z < z1)
+                or (name == "top" and abs(f.calc_center_median().x) > 0.135)]
+        bmesh.ops.delete(bm, geom=kill, context="FACES")
+        bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+        for v in bm.verts:
+            if v.is_boundary and name == "briefs" or (v.is_boundary and abs(v.co.x) < 0.12):
+                v.co.z = z0 if v.co.z < (z0 + z1) / 2 else z1
+            v.co += v.normal * 0.0025
+        idx = [v[orig] for v in bm.verts]
+        bm.verts.layers.int.remove(orig)
+        ume = bpy.data.meshes.new("Underwear_" + name)
+        bm.to_mesh(ume)
+        bm.free()
+        ob = link(bpy.data.objects.new("Underwear_" + name, ume))
+        ume.materials.append(mat)
+        shade_smooth(ob)
+        groups = {}
+        for i, oi in enumerate(idx):
+            for b, w in ws[oi].items():
+                g = groups.get(b) or groups.setdefault(b, ob.vertex_groups.new(name=b))
+                g.add([i], w, "REPLACE")
+        pieces.append(ob)
+    ob = join_skinned(pieces, "Underwear", rig)
+    ob["wardrobe_slot"] = "base"
+    return ob
+
+
+def split_body(body, face_sec):
+    """Split the body into section objects that keep weights and seamless normals."""
+    me = body.data
+    normals = [v.normal.copy() for v in me.vertices]
+    sections = {}
+    for name in sorted(set(face_sec)):
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        orig = bm.verts.layers.int.new("orig")
+        for v in bm.verts:
+            v[orig] = v.index
+        bm.faces.ensure_lookup_table()
+        kill = [f for f in bm.faces if face_sec[f.index] != name]
+        bmesh.ops.delete(bm, geom=kill, context="FACES")
+        loose = [v for v in bm.verts if not v.link_faces]
+        bmesh.ops.delete(bm, geom=loose, context="VERTS")
+        idx = [v[orig] for v in bm.verts]
+        bm.verts.layers.int.remove(orig)
+        sme = bpy.data.meshes.new("Body_" + name)
+        bm.to_mesh(sme)
+        bm.free()
+        for m in me.materials:
+            sme.materials.append(m)
+        for poly in sme.polygons:
+            poly.use_smooth = True
+        sme.normals_split_custom_set_from_vertices([normals[i] for i in idx])
+        so = link(bpy.data.objects.new("Body_" + name, sme))
+        for g in body.vertex_groups:
+            so.vertex_groups.new(name=g.name)
+        so.parent = body.parent
+        mod = so.modifiers.new("Armature", "ARMATURE")
+        mod.object = body.parent
+        so["body_section"] = name
+        so["wardrobe_slot"] = "body"
+        sections[name] = so
+    return sections
+
+
+class BodySampler:
+    """Nearest-point queries against (a subset of) the base body surface."""
+
+    def __init__(self, body, face_sec, ws, allowed=None):
+        me = body.data
+        self.me, self.ws = me, ws
+        self.faces = [p.index for p in me.polygons if allowed is None or face_sec[p.index] in allowed]
+        verts = [v.co.copy() for v in me.vertices]
+        self.bvh = BVHTree.FromPolygons(verts, [tuple(me.polygons[i].vertices) for i in self.faces])
+
+    def nearest(self, co):
+        loc, nrm, fi, dist = self.bvh.find_nearest(co)
+        return loc, nrm, self.me.polygons[self.faces[fi]]
+
+    def weights_at(self, co):
+        loc, nrm, poly = self.nearest(co)
+        acc = {}
+        for vi in poly.vertices:
+            k = 1.0 / ((self.me.vertices[vi].co - loc).length + 1e-5)
+            for b, w in self.ws[vi].items():
+                acc[b] = acc.get(b, 0.0) + w * k
+        top = sorted(acc.items(), key=lambda kv: -kv[1])[:4]
+        tot = sum(w for _, w in top) or 1.0
+        return {b: w / tot for b, w in top}
+
+
+def fit_outside(ob, sampler, margin=0.006, depth=0.025):
+    """Push fabric vertices that sit inside (or on) the skin back out by `margin`."""
+    moved = 0
+    for v in ob.data.vertices:
+        loc, nrm, _ = sampler.nearest(v.co)
+        s = (v.co - loc).dot(nrm)
+        if -depth < s < margin:
+            v.co += nrm * (margin - s)
+            moved += 1
+    return moved
+
+
+def bind_garment(ob, rig, sampler):
+    """Copy skin weights from the body under the garment so it deforms with the body."""
+    ob.parent = rig
+    mod = ob.modifiers.new("Armature", "ARMATURE")
+    mod.object = rig
+    groups = {}
+    for v in ob.data.vertices:
+        for b, w in sampler.weights_at(v.co).items():
+            g = groups.get(b) or groups.setdefault(b, ob.vertex_groups.new(name=b))
+            g.add([v.index], w, "REPLACE")
+
+
+def cut_faces(ob, kill_fn, snap_fn=None):
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    kill = [f for f in bm.faces if kill_fn(f.calc_center_median())]
+    bmesh.ops.delete(bm, geom=kill, context="FACES")
+    if snap_fn:
+        for v in bm.verts:
+            if v.is_boundary:
+                snap_fn(v)
+    bm.to_mesh(ob.data)
+    bm.free()
+
+
+def solidify(ob, thickness):
+    so = ob.modifiers.new("Solidify", "SOLIDIFY")
+    so.thickness = thickness
+    so.offset = 1.0
+    so.use_rim = True
+    bake(ob)
+    shade_smooth(ob)
+
+
+# --------------------------------------------------------------------------
+# Garments. Each is built from the same skeleton layout as the body with some
+# ease added, cut to length, pushed outside the skin, then bound to the rig
+# with weights copied from the body.
+# --------------------------------------------------------------------------
+def neckline_z(co, depth=0.050, top=1.345):
+    r = math.hypot(co.x, (co.y - 0.01) * 1.25)
+    front = max(0.0, -(co.y - 0.01) / max(r, 1e-4))
+    return top - depth * front ** 1.5, r
+
+
+def build_top(name, mat, rig, body, face_sec, ws, *, ease=1.0, hem=0.928, sleeve_cut=None,
+              sleeve_r=(0.056, 0.050, 0.054, 0.050), neck_depth=0.050, neck_r=0.108):
+    """Sweater-like top. sleeve_cut: z of the sleeve end (None = to the cuff)."""
+    torso = skin_mesh(name + "Torso", [
+        (V(0, 0.002, hem - 0.07), (0.188 * ease, 0.136 * ease)),
+        (V(0, -0.004, 1.030), (0.178 * ease, 0.128 * ease)),
+        (V(0, -0.010, 1.160), (0.165 * ease, 0.124 * ease)),
+        (V(0, 0.002, 1.245), (0.128, 0.094)),
+        (V(0, 0.010, 1.345), (0.074, 0.066)),
+        (V(0.120, 0.010, 1.275), (0.052, 0.052)),   # shoulder yokes close the torso
+        (V(-0.120, 0.010, 1.275), (0.052, 0.052)),
+    ], [(0, 1), (1, 2), (2, 3), (3, 4), (3, 5), (3, 6)], subdiv=2)
+
+    def kill(c):
+        z, r = neckline_z(c, neck_depth)
+        return (c.z > z and r < neck_r) or c.z < hem
+
+    def snap(v):
+        if v.co.z < 1.0:
+            v.co.z = hem
+        else:
+            v.co.z = neckline_z(v.co, neck_depth)[0]
+    cut_faces(torso, kill, snap)
+    parts = [torso]
+    for sx in (1, -1):
+        a = arm_nodes(sx)
+        r0, r1, r2, r3 = sleeve_r
+        sl = skin_mesh(name + "Sleeve", [
+            (V(sx * 0.100, 0.008, 1.268), (0.044, 0.044)),
+            (a["shoulder"], (r0, r0)),
+            (a["elbow"], (r1, r1)),
+            (a["elbow"].lerp(a["cuff"], 0.55) + V(sx * 0.003, 0, 0), (r2, r2)),
+            (a["cuff"], (r3, r3)),
+            (a["cuff"] - V(0, 0, 0.050), (r3 * 0.92, r3 * 0.92)),
+        ], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)], subdiv=2)
+        zc = (a["cuff"].z - 0.008) if sleeve_cut is None else sleeve_cut
+
+        def kill_s(c, zc=zc):
+            z, r = neckline_z(c, neck_depth)
+            return c.z < zc or (c.z > z and r < neck_r)
+
+        def snap_s(v, zc=zc):
+            if v.co.z < zc + 0.05:
+                v.co.z = zc
+            else:
+                v.co.z = neckline_z(v.co, neck_depth)[0]
+        cut_faces(sl, kill_s, snap_s)
+        parts.append(sl)
+    s_torso = BodySampler(body, face_sec, ws, {"torso", "pelvis", "neck"})
+    s_arms = BodySampler(body, face_sec, ws, {"upperarms", "forearms"})
+    fit_outside(parts[0], s_torso)
+    for o in parts[1:]:
+        fit_outside(o, s_arms)
+    for o in parts:
+        solidify(o, 0.006)
+    # bind each piece against the right part of the body, then merge
+    for o, smp in zip(parts, (s_torso, s_arms, s_arms)):
+        bind_garment(o, rig, smp)
+    ob = join_skinned(parts, name, rig)
+    ob.data.materials.append(mat)
+    return ob
+
+
+def build_bottom(name, mat, m_string, rig, body, face_sec, ws, *, cut=0.092, leg_ease=1.0):
+    n = [
+        (V(0, 0.004, 0.975), (0.138, 0.104)),
+        (V(0, 0.012, 0.870), (0.146, 0.114)),
+    ]
+    e = [(0, 1)]
+    for sx in (1, -1):
+        i = len(n)
+        k = leg_ease
+        n += [
+            (V(sx * 0.082, 0.010, 0.770), (0.086 * k, 0.104 * k)),
+            (V(sx * 0.100, 0.004, 0.510), (0.070 * k, 0.078 * k)),
+            (V(sx * 0.114, 0.012, 0.260), (0.066, 0.072)),
+            (V(sx * 0.121, 0.018, 0.165), (0.076, 0.078)),
+            (V(sx * 0.124, 0.022, 0.115), (0.070, 0.074)),
+            (V(sx * 0.124, 0.022, 0.085), (0.060, 0.064)),
+        ]
+        e += [(1, i), (i, i + 1), (i + 1, i + 2), (i + 2, i + 3), (i + 3, i + 4), (i + 4, i + 5)]
+    ob = skin_mesh(name, n, e, subdiv=2)
+    if cut > 0.3:   # shorts: add a little flare at the leg opening
+        for v in ob.data.vertices:
+            if v.co.z < 0.80:
+                t = min(1.0, (0.80 - v.co.z) / (0.80 - cut))
+                c = V(math.copysign(0.086, v.co.x), 0.010, v.co.z)
+                off = v.co - c
+                off.z = 0
+                v.co = c + off * (1.0 + 0.10 * t) + V(0, 0, v.co.z - c.z)
+    cut_faces(ob, lambda c: c.z < cut, lambda v: setattr(v.co, "z", cut))
+    smp = BodySampler(body, face_sec, ws, {"pelvis", "thighs", "shins", "torso", "feet"})
+    fit_outside(ob, smp)
+    solidify(ob, 0.005)
+    cylinder_uv(ob, 0.80)
+    ob.data.materials.append(mat)
+    bind_garment(ob, rig, smp)
+    string = build_drawstring(m_string)
+    bind_garment(string, rig, BodySampler(body, face_sec, ws, {"pelvis", "torso"}))
+    return join_skinned([ob, string], name, rig)
+
+
+def join_skinned(objs, name, rig):
+    """Join garment pieces (UVs, vertex groups and materials are kept by Blender's join)."""
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    for o in objs:
+        for m in list(o.modifiers):
+            if m.type == "ARMATURE":
+                o.modifiers.remove(m)
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+    bpy.ops.object.join()
+    ob = objs[0]
+    ob.name = ob.data.name = name
+    ob.parent = rig
+    mod = ob.modifiers.new("Armature", "ARMATURE")
+    mod.object = rig
+    shade_smooth(ob)
+    return ob
 
 def build_drawstring(mat):
     g = GeoBatch()
@@ -1190,61 +1456,168 @@ def glb_to_embedded_gltf(glb_path, out_path):
 
 
 # --------------------------------------------------------------------------
+# Wardrobe
+# --------------------------------------------------------------------------
+WARDROBE = [
+    # object name, slot, label, body sections hidden while worn
+    ("Outfit_Sweater", "top", "Navy sweater", ["torso", "upperarms"]),
+    ("Outfit_TShirt", "top", "Lavender tee", ["torso"]),
+    ("Outfit_Joggers", "bottom", "Plaid joggers", ["pelvis", "thighs", "shins"]),
+    ("Outfit_Shorts", "bottom", "Plaid shorts", ["pelvis"]),
+]
+DEFAULT_OUTFIT = ["Outfit_Sweater", "Outfit_Joggers"]
+
+
+def show_outfit(items, sections, worn, render=True):
+    hidden = set()
+    for name, slot, label, hides in WARDROBE:
+        on = name in worn
+        items[name].hide_render = not on
+        items[name].hide_set(not on)
+        if on:
+            hidden.update(hides)
+    for sec, ob in sections.items():
+        ob.hide_render = sec in hidden
+        ob.hide_set(sec in hidden)
+
+
+def export_selection(path, objs, animations):
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    for o in objs:
+        o.hide_set(False)
+        o.select_set(True)
+    bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", export_yup=True, use_selection=True,
+                              export_animations=animations, export_animation_mode="NLA_TRACKS",
+                              export_skins=True, export_extras=True, export_image_format="AUTO")
+
+
+def set_action(rig, name, frame):
+    act = bpy.data.actions.get(name) if name else None
+    rig.animation_data.action = act
+    if act is not None and getattr(act, "slots", None):
+        try:
+            rig.animation_data.action_slot = act.slots[0]
+        except Exception:
+            pass
+    bpy.context.scene.frame_set(frame)
+
+
 def main():
+    import json
     render = "--no-render" not in sys.argv
     reset()
     face_img = face_texture()
     plaid_img = plaid_texture()
     m_skin = material("Skin", COL["skin"], rough=0.6)
+    m_under = material("Underwear", COL["underwear"], rough=0.85, spec=0.1)
     m_face = material("Face", COL["skin"], rough=0.6, image=face_img)
-    m_shirt = material("Shirt", COL["shirt"], rough=0.95, spec=0.1)
-    m_pants = material("Pants", COL["pants"], rough=0.95, image=plaid_img, spec=0.1)
+    m_shirt = material("Sweater", COL["shirt"], rough=0.95, spec=0.1)
+    m_tee = material("Tee", COL["tee"], rough=0.9, spec=0.1)
+    m_pants = material("Plaid", COL["pants"], rough=0.95, image=plaid_img, spec=0.1)
     m_hair = material("Hair", COL["hair"], rough=0.55, spec=0.4)
     m_hair_dark = material("HairDark", COL["hair_dark"], rough=0.6, spec=0.3)
     m_string = material("Drawstring", COL["string"], rough=0.9)
 
+    rig = build_armature()
     head = build_head(m_face)
     ears = build_ears(m_skin)
-    body = build_body_skin(m_skin, m_shirt)
-    shirt = build_shirt(m_shirt)
-    pants = build_pants(m_pants)
-    hands = build_hands(m_skin)
-    feet = build_feet(m_skin)
-    string = build_drawstring(m_string)
     hair = build_hair(head, m_hair, m_hair_dark)
-
-    rig = build_armature()
-    torso = ["hips", "spine", "chest", "neck", "shoulder.L", "shoulder.R",
-             "upper_arm.L", "upper_arm.R", "forearm.L", "forearm.R"]
-    skin_to(shirt, rig, torso)
-    skin_to(body, rig, ["chest", "neck", "head", "shoulder.L", "shoulder.R"])
-    skin_to(pants, rig, ["hips", "spine", "thigh.L", "thigh.R", "shin.L", "shin.R"])
-    skin_to(string, rig, None, rigid="hips")
-    for h, s in zip(hands, "LR"):
-        skin_to(h, rig, [f"forearm.{s}", f"hand.{s}"], power=6)
-    for f, s in zip(feet, "LR"):
-        skin_to(f, rig, [f"shin.{s}", f"foot.{s}", f"toe.{s}"], power=6)
     for o in [head] + ears + hair:
         skin_to(o, rig, None, rigid="head")
+        o["wardrobe_slot"] = "hair" if o in hair else "head"
+
+    # base body -> weights -> sections
+    body = build_body(m_skin, m_under)
+    under = None
+    rig_body(body, rig)
+    face_sec, face_bone, ws = classify_body(body)
+    under = build_underwear(body, face_sec, ws, rig, m_under)
+
+    items = {
+        "Outfit_Sweater": build_top("Outfit_Sweater", m_shirt, rig, body, face_sec, ws),
+        "Outfit_TShirt": build_top("Outfit_TShirt", m_tee, rig, body, face_sec, ws, ease=0.93, hem=0.925,
+                                   sleeve_cut=1.150, sleeve_r=(0.053, 0.047, 0.047, 0.046), neck_depth=0.035),
+        "Outfit_Joggers": build_bottom("Outfit_Joggers", m_pants, m_string, rig, body, face_sec, ws),
+        "Outfit_Shorts": build_bottom("Outfit_Shorts", m_pants, m_string, rig, body, face_sec, ws, cut=0.640,
+                                      leg_ease=1.04),
+    }
+    for name, slot, label, hides in WARDROBE:
+        ob = items[name]
+        ob["wardrobe_slot"] = slot
+        ob["label"] = label
+        ob["hides"] = ",".join(hides)
+    sections = split_body(body, face_sec)
+    bpy.data.objects.remove(body)
     build_animations(rig)
+    show_outfit(items, sections, DEFAULT_OUTFIT)
 
     blend = os.path.join(OUT_EXPORT, "character.blend")
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=blend)
+
+    base = [rig, head, under] + ears + hair + list(sections.values())
     glb = os.path.join(OUT_EXPORT, "character.glb")
-    bpy.ops.export_scene.gltf(filepath=glb, export_format="GLB", export_yup=True,
-                              export_animations=True, export_animation_mode="NLA_TRACKS",
-                              export_skins=True, export_image_format="AUTO")
+    export_selection(glb, base + list(items.values()), True)
     glb_to_embedded_gltf(glb, os.path.join(OUT_EXPORT, "character.gltf"))
-    tris = sum(len(p.vertices) - 2 for o in bpy.data.objects if o.type == "MESH" for p in o.data.polygons)
-    print(f"EXPORTED {glb} triangles={tris}")
+    parts_dir = os.path.join(OUT_EXPORT, "parts")
+    os.makedirs(parts_dir, exist_ok=True)
+    export_selection(os.path.join(parts_dir, "base_body.glb"), base, True)
+    for name, ob in items.items():
+        export_selection(os.path.join(parts_dir, name.replace("Outfit_", "").lower() + ".glb"), [rig, ob], False)
+    manifest = {
+        "skeleton": [b[0] for b in BONES],
+        "body_sections": sorted(sections),
+        "default_outfit": DEFAULT_OUTFIT,
+        "items": [{"node": n, "slot": sl, "label": lb, "hides": h,
+                   "file": "parts/" + n.replace("Outfit_", "").lower() + ".glb"} for n, sl, lb, h in WARDROBE],
+    }
+    with open(os.path.join(OUT_EXPORT, "wardrobe.json"), "w") as f:
+        json.dump(manifest, f, indent=2)
+    tris = {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in bpy.data.objects if o.type == "MESH"}
+    print(f"EXPORTED {glb} triangles={sum(tris.values())}")
+    print({k: v for k, v in sorted(tris.items())})
 
     if render:
-        rig.data.pose_position = "REST"
         cam = setup_render()
+        rig.data.pose_position = "REST"
         paths = render_views(cam)
         compose_sheet(paths, os.path.join(OUT_RENDER, "turnaround.png"),
                       ref=os.path.join(ROOT, "reference", "turnaround.png"))
+        # wardrobe sheet: the same body in each combination
+        combos = [("base", []), ("sweater_joggers", ["Outfit_Sweater", "Outfit_Joggers"]),
+                  ("tee_shorts", ["Outfit_TShirt", "Outfit_Shorts"]), ("tee_joggers", ["Outfit_TShirt", "Outfit_Joggers"]),
+                  ("sweater_shorts", ["Outfit_Sweater", "Outfit_Shorts"])]
+        wpaths = []
+        a = math.radians(-30)
+        for cname, worn in combos:
+            show_outfit(items, sections, worn)
+            cam.location = V(math.sin(a) * 4, -math.cos(a) * 4, 0.93)
+            cam.rotation_euler = (math.pi / 2, 0, a)
+            p = os.path.join(OUT_RENDER, f"wardrobe_{cname}.png")
+            bpy.context.scene.render.filepath = p
+            bpy.ops.render.render(write_still=True)
+            wpaths.append(p)
+        compose_sheet(wpaths, os.path.join(OUT_RENDER, "wardrobe.png"))
+        # deformation check: clothes follow the body mid-stride
+        rig.data.pose_position = "POSE"
+        dpaths = []
+        for cname, worn, frame, az in (("walk_a", DEFAULT_OUTFIT, 9, -90), ("walk_b", DEFAULT_OUTFIT, 9, -35),
+                                       ("walk_c", ["Outfit_TShirt", "Outfit_Shorts"], 9, -90),
+                                       ("walk_d", ["Outfit_TShirt", "Outfit_Shorts"], 24, -35)):
+            show_outfit(items, sections, worn)
+            set_action(rig, "Walk", frame)
+            a = math.radians(az)
+            cam.location = V(math.sin(a) * 4, -math.cos(a) * 4, 0.93)
+            cam.rotation_euler = (math.pi / 2, 0, a)
+            p = os.path.join(OUT_RENDER, f"deform_{cname}.png")
+            bpy.context.scene.render.filepath = p
+            bpy.ops.render.render(write_still=True)
+            dpaths.append(p)
+        compose_sheet(dpaths, os.path.join(OUT_RENDER, "deform.png"))
+        set_action(rig, None, 1)
+        rig.data.pose_position = "REST"
+        show_outfit(items, sections, DEFAULT_OUTFIT)
         cam.data.ortho_scale = 0.42
         for name, az in (("face", 0), ("face_threequarter", -40), ("face_side", -90)):
             a = math.radians(az)
@@ -1255,7 +1628,7 @@ def main():
             bpy.ops.render.render(write_still=True)
         compose_sheet([os.path.join(OUT_RENDER, f"closeup_{n}.png") for n in ("face", "face_threequarter", "face_side")],
                       os.path.join(OUT_RENDER, "closeups.png"))
-        print("RENDERED", paths)
+        print("RENDERED")
 
 
 if __name__ == "__main__":

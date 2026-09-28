@@ -110,9 +110,9 @@
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">Character model · iteration v1 · Blender 5.0 → glTF</div>
+    <div class="eyebrow">Character model · iteration v2 · modular wardrobe</div>
     <h1>Pajama Girl, in 3D</h1>
-    <p class="lede">A rigged, game-ready model of the character from your turnaround sheet. It is built entirely by a Blender Python script, so every change you ask for is a parameter tweak and a rebuild. Drag to orbit, scroll to zoom, and switch between the reference camera angles.</p>
+    <p class="lede">A rigged, game-ready model of the character from your turnaround sheet. Clothes are now separate items on a full base body: each one is skinned to the same skeleton and weighted from the skin underneath, so it moves with the body and can be swapped. Pick an outfit, press Walk, and orbit around.</p>
     <div class="swatches" aria-label="Palette sampled from the reference">
       <span style="background:#2f3a6e" title="Shirt #2F3A6E"></span>
       <span style="background:#6f7bac" title="Pants #6F7BAC"></span>
@@ -137,6 +137,14 @@
     </div>
 
     <aside class="controls">
+      <div class="group">
+        <div class="label">Top</div>
+        <div class="chips" id="w-top" role="group" aria-label="Top" data-slot="top"></div>
+      </div>
+      <div class="group">
+        <div class="label">Bottom</div>
+        <div class="chips" id="w-bottom" role="group" aria-label="Bottom" data-slot="bottom"></div>
+      </div>
       <div class="group">
         <div class="label">Animation</div>
         <div class="chips" id="anims" role="group" aria-label="Animation">
@@ -164,12 +172,26 @@
           <dt>Meshes</dt><dd id="st-meshes">–</dd>
           <dt>Bones</dt><dd id="st-bones">–</dd>
           <dt>Textures</dt><dd id="st-tex">–</dd>
+          <dt>Clothing items</dt><dd id="st-items">–</dd>
+          <dt>Hidden body parts</dt><dd id="st-hidden">–</dd>
           <dt>Height</dt><dd id="st-h">–</dd>
           <dt>Download size</dt><dd id="st-size">–</dd>
         </dl>
       </div>
     </aside>
   </div>
+
+  <section>
+    <h2>One body, swappable clothes</h2>
+    <p class="caption">From left: the base body in plain underwear, sweater with joggers, tee with shorts, tee with joggers, sweater with shorts. Body parts fully covered by an item are switched off while it is worn, so skin can never poke through.</p>
+    <div class="shot"><img src="img/wardrobe.jpg" alt="The same character in five outfit combinations" loading="lazy"></div>
+  </section>
+
+  <section>
+    <h2>Clothes follow the body</h2>
+    <p class="caption">Mid-stride in the Walk clip. Every garment copies its skin weights from the body surface under it, so knees, hips and arms bend the fabric the same way they bend the skin.</p>
+    <div class="shot"><img src="img/deform.jpg" alt="Walk poses showing the joggers, sweater, tee and shorts bending with the legs and arms" loading="lazy"></div>
+  </section>
 
   <section>
     <h2>Blender renders against the sheet</h2>
@@ -185,24 +207,23 @@
 
   <div class="cols">
     <div class="card">
-      <h2>Where v1 stands</h2>
+      <h2>How the wardrobe works</h2>
       <ul>
-        <li><span class="tag ok">matches</span>Height and proportions: head, neckline, hem, crotch, knees and cuffs are placed from pixel measurements of the sheet.</li>
-        <li><span class="tag ok">matches</span>Navy sweater with bunched sleeves, plaid joggers with cuffs, cream drawstring bow, bare feet with toes.</li>
-        <li><span class="tag ok">matches</span>Messy top-back bun, swept-up strands, face-framing tendrils and nape wisps.</li>
-        <li><span class="tag next">rough</span>Sweater reads boxy. It needs a softer drape at the hem and folds at the sleeves.</li>
-        <li><span class="tag next">rough</span>The bun looks like separate coils. It should read as one soft mass.</li>
-        <li><span class="tag next">rough</span>Neckline is higher and narrower than the sheet's wide scoop.</li>
-        <li><span class="tag next">rough</span>Hands and feet are simplified. There are no finger bones yet.</li>
+        <li><span class="tag ok">base</span>One continuous body, neck to toes, rigged with automatic bone-heat weights and split into 9 hideable parts: neck, torso, upper arms, forearms, hands, pelvis, thighs, shins, feet.</li>
+        <li><span class="tag ok">fit</span>Each garment is built from the body's skeleton with ease added, cut to length, then pushed 6&nbsp;mm outside the skin wherever it would sit inside.</li>
+        <li><span class="tag ok">bind</span>Garment weights are copied from the nearest body surface: sleeves only from the arms, pants only from the pelvis and legs, so the fabric bends like the skin.</li>
+        <li><span class="tag ok">hide</span>Each item lists the body parts it covers completely. The sweater hides the torso and upper arms, and the joggers hide the pelvis, thighs and shins.</li>
+        <li><span class="tag next">rough</span>Small corners remain where the sleeves meet the neckline.</li>
+        <li><span class="tag next">next</span>Cloth physics for the loose hem and cuffs, and hair as its own slot.</li>
       </ul>
     </div>
     <div class="card">
       <h2>Using it in a game</h2>
       <ul>
-        <li><code>character.glb</code> has meshes, a skin, 2 textures and the <code>Idle</code> and <code>Walk</code> clips. It loads directly in Unity (glTFast), Unreal, Godot and three.js.</li>
-        <li>Meters, Y-up, facing +Z. The feet rest on the origin.</li>
-        <li>About 105k triangles in this build. Tell me the target (mobile around 15k, PC around 40k) and I'll add a decimated LOD.</li>
-        <li>Skeleton, 21 bones:</li>
+        <li><code>parts/base_body.glb</code> has the rig, body, head, hair, underwear and the <code>Idle</code> and <code>Walk</code> clips.</li>
+        <li><code>parts/sweater.glb</code>, <code>tshirt.glb</code>, <code>joggers.glb</code> and <code>shorts.glb</code> each hold one item on the same 21-bone skeleton. In the engine, bind the item to the body's skeleton by bone name. That is Unity's shared-bones pattern, Unreal's Leader Pose component, or Godot's skeleton path.</li>
+        <li><code>wardrobe.json</code> lists each item's slot and the body parts to hide while it is worn. The same data is on every glTF node as extras.</li>
+        <li><code>character.glb</code> bundles everything, which is what this viewer loads. Units are meters, Y-up, facing +Z.</li>
       </ul>
       <div class="bones">hips › spine › chest › neck › head · shoulder › upper_arm › forearm › hand (.L/.R) · thigh › shin › foot › toe (.L/.R)</div>
     </div>
@@ -215,7 +236,7 @@
       <li>"Head 10% smaller, neck shorter, a wider scoop neckline."</li>
       <li>"Sweater looser and longer, covering the waistband."</li>
       <li>"Bun bigger and rounder, fewer loose strands."</li>
-      <li>"More anime: bigger eyes, smaller nose."</li>
+      <li>"Add a hoodie and fuzzy socks to the wardrobe."</li>
       <li>"Target Unity, 20k triangles, Mixamo-compatible bone names."</li>
     </ul>
   </section>
@@ -269,6 +290,37 @@ const toonRamp = (() => {
 })();
 
 let model, mixer, skeletonHelper, actions = {}, current = null;
+const items = {};      // node name -> { node, slot, label, hides[] }
+const sections = {};   // body section -> node
+const worn = { top: "Outfit_Sweater", bottom: "Outfit_Joggers" };
+
+function applyOutfit() {
+  const hidden = new Set();
+  for (const [name, it] of Object.entries(items)) {
+    const on = worn[it.slot] === name;
+    it.node.visible = on;
+    if (on) it.hides.forEach(h => hidden.add(h));
+  }
+  for (const [sec, node] of Object.entries(sections)) node.visible = !hidden.has(sec);
+  document.getElementById("st-hidden").textContent = hidden.size ? [...hidden].join(", ") : "none";
+}
+
+function buildWardrobeUI() {
+  for (const slot of ["top", "bottom"]) {
+    const el = document.getElementById("w-" + slot);
+    const entries = Object.entries(items).filter(([, it]) => it.slot === slot);
+    for (const [name, it] of [...entries, ["", { label: "None" }]]) {
+      const b = document.createElement("button");
+      b.className = "chip"; b.dataset.item = name; b.id = "w-" + slot + "-" + (name || "none");
+      b.textContent = it.label; b.setAttribute("aria-pressed", String(worn[slot] === name));
+      el.append(b);
+    }
+    el.addEventListener("click", e => {
+      const b = e.target.closest("button"); if (!b) return;
+      setPressed(el, b); worn[slot] = b.dataset.item; applyOutfit();
+    });
+  }
+}
 const meshes = [];
 const state = { shade: "toon", wire: false };
 
@@ -333,7 +385,15 @@ load().then(gltf => {
       tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
     }
     if (o.isBone) bones++;
+    const u = o.userData || {};
+    if (u.wardrobe_slot === "top" || u.wardrobe_slot === "bottom") {
+      items[o.name] = { node: o, slot: u.wardrobe_slot, label: u.label || o.name, hides: (u.hides || "").split(",").filter(Boolean) };
+    }
+    if (u.body_section) sections[u.body_section] = o;
   });
+  document.getElementById("st-items").textContent = Object.keys(items).length;
+  buildWardrobeUI();
+  applyOutfit();
   const box = new THREE.Box3().setFromObject(model);
   document.getElementById("st-tris").textContent = Math.round(tris).toLocaleString("en-US");
   document.getElementById("st-meshes").textContent = meshes.length;
